@@ -4,6 +4,7 @@
 
 import json
 from pathlib import Path
+from typing import List, Dict, Any
 import anthropic
 
 
@@ -49,7 +50,7 @@ def _carregar_exemplos(exemplos_dir: str) -> str:
 
 def analisar(
     modulo:       str,
-    hits:         list[dict],
+    hits:         List[Dict[str, Any]],
     skill_path:   str,
     exemplos_dir: str,
 ) -> dict:
@@ -62,7 +63,7 @@ def analisar(
     exemplos = _carregar_exemplos(exemplos_dir)
 
     # Serializa hits removendo campos desnecessários para economizar tokens
-    # hits ja chegam como list[dict] do analise.py
+    # hits ja chegam como List[Dict[str, Any]] do analise.py
     hits_payload = hits
 
     prompt_usuario = f"""Analise os candidatos abaixo encontrados na migração CNPJ do módulo **{modulo}**.

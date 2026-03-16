@@ -61,7 +61,7 @@ def parse_args():
 # ---------------------------------------------------------------------------
 
 def diff_arquivos(repo_path: str, branch_main: str, branch_cnpj: str,
-                  extensoes: list[str]) -> list[str]:
+                  extensoes: List[str]) -> List[str]:
     result = subprocess.run(
         ["git", "diff", f"{branch_main}..{branch_cnpj}", "--name-only"],
         cwd=repo_path, capture_output=True, text=True,
@@ -70,7 +70,7 @@ def diff_arquivos(repo_path: str, branch_main: str, branch_cnpj: str,
     return [f for f in todos if any(f.endswith(e) for e in extensoes)]
 
 
-def checkout_temp(repo_path: str, branch: str, arquivo: str) -> Path | None:
+def checkout_temp(repo_path: str, branch: str, arquivo: str) -> Optional[Path]:
     """Extrai arquivo do branch para temp — grep_engine precisa de path real no disco."""
     import tempfile
     result = subprocess.run(
@@ -91,7 +91,7 @@ def checkout_temp(repo_path: str, branch: str, arquivo: str) -> Path | None:
 # ---------------------------------------------------------------------------
 
 def rodar_grep_engine(repo_path: str, branch_cnpj: str,
-                arquivos: list[str]) -> list[dict]:
+                arquivos: List[str]) -> List[Dict[str, Any]]:
     resultados = []
     for arquivo in arquivos:
         if not arquivo.endswith(".java"):
@@ -114,7 +114,7 @@ def rodar_grep_engine(repo_path: str, branch_cnpj: str,
     return resultados
 
 
-def imprimir_grep_engine(resultados: list[dict]) -> int:
+def imprimir_grep_engine(resultados: List[Dict[str, Any]]) -> int:
     """Imprime resultados do grep_engine e retorna total de erros criticos."""
     total_erros = 0
     for r in resultados:
@@ -138,7 +138,7 @@ def imprimir_grep_engine(resultados: list[dict]) -> int:
     return total_erros
 
 
-def converter_para_hits(resultados: list[dict]) -> list[dict]:
+def converter_para_hits(resultados: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """Converte erros do grep_engine para o formato que o claude_analyzer espera."""
     hits = []
     for r in resultados:
@@ -161,7 +161,7 @@ def converter_para_hits(resultados: list[dict]) -> list[dict]:
 # Console output — bugs confirmados pelo Claude
 # ---------------------------------------------------------------------------
 
-def imprimir_bugs_claude(bugs: list[dict]) -> None:
+def imprimir_bugs_claude(bugs: List[Dict[str, Any]]) -> None:
     bugs_reais = [b for b in bugs if b.get("severidade") != "FALSO_POSITIVO"]
     if not bugs_reais:
         return
@@ -309,4 +309,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main() 
+    main()
