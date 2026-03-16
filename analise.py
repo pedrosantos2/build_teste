@@ -40,7 +40,7 @@ DEFAULT_SKILL    = Path(__file__).parent / "analise-cnpj.md"
 DEFAULT_EXEMPLOS = Path(__file__).parent / "exemplos"
 
 # Paths fixos dos workspaces no Jenkins
-BASE_WEB  = Path("/Systextil/workspace/WEB/prod/WEB-prod")
+BASE_WEB  = Path("/Systextil/workspace/WEB/dev/")
 BASE_CNPJ = Path("/Systextil/workspace/WEB/prod/CNPJ")
 
 # Extensoes e pastas vem do config.py
