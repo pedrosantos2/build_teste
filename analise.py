@@ -96,15 +96,15 @@ def _deve_incluir(relativo: Path) -> bool:
     return True
 
 
-def listar_arquivos_modificados(dir_web: Path, dir_cnpj: Path) -> List[str]:
+def listar_arquivos(dir_web: Path, dir_cnpj: Path) -> Dict[str, List[str]]:
     """
-    Compara os dois diretorios recursivamente.
-    Retorna paths relativos dos arquivos que:
-      - Existem no CNPJ e sao diferentes do WEB (modificados)
-      - Existem no CNPJ mas nao no WEB (novos)
+    Varre o diretorio CNPJ recursivamente e classifica cada arquivo:
+      - "modificados": diferentes do WEB ou novos no CNPJ
+      - "nao_tocados": identicos ao WEB (nunca migrados, podem ter legado)
     Aplica filtros de pastas e extensoes do config.py.
     """
     modificados = []
+    nao_tocados = []
 
     for arquivo_cnpj in dir_cnpj.rglob("*"):
         if not arquivo_cnpj.is_file():
@@ -118,27 +118,50 @@ def listar_arquivos_modificados(dir_web: Path, dir_cnpj: Path) -> List[str]:
         arquivo_web = dir_web / relativo
 
         if not arquivo_web.exists():
+            # Novo no CNPJ
             modificados.append(str(relativo))
         elif not filecmp.cmp(str(arquivo_web), str(arquivo_cnpj), shallow=False):
+            # Modificado
             modificados.append(str(relativo))
+        else:
+            # Identico ao WEB — nunca tocado na migracao
+            nao_tocados.append(str(relativo))
 
-    return sorted(modificados)
+    return {
+        "modificados": sorted(modificados),
+        "nao_tocados": sorted(nao_tocados),
+    }
 
 
 # ---------------------------------------------------------------------------
 # Comparacao via Git — modo local
 # ---------------------------------------------------------------------------
 
-def listar_arquivos_git(repo_path: str) -> List[str]:
+def listar_arquivos_git(repo_path: str) -> Dict[str, List[str]]:
     from grep_engine import _resolver_branch_cnpj, _resolver_branch_principal
     branch_cnpj = _resolver_branch_cnpj(repo_path)
     branch_main = _resolver_branch_principal(repo_path)
+
+    # Modificados
     result = subprocess.run(
         ["git", "diff", f"{branch_main}..{branch_cnpj}", "--name-only"],
         cwd=repo_path, capture_output=True, text=True,
     )
-    todos = result.stdout.splitlines()
-    return [f for f in todos if _deve_incluir(Path(f))]
+    modificados = [f for f in result.stdout.splitlines() if _deve_incluir(Path(f))]
+
+    # Todos os arquivos do branch CNPJ
+    result_all = subprocess.run(
+        ["git", "ls-tree", "-r", "--name-only", branch_cnpj],
+        cwd=repo_path, capture_output=True, text=True,
+    )
+    todos = [f for f in result_all.stdout.splitlines() if _deve_incluir(Path(f))]
+    mod_set = set(modificados)
+    nao_tocados = [f for f in todos if f not in mod_set]
+
+    return {
+        "modificados": sorted(modificados),
+        "nao_tocados": sorted(nao_tocados),
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -246,17 +269,19 @@ def imprimir_bugs_claude(bugs: List[Dict]) -> None:
 def converter_para_hits(resultados: List[Dict]) -> List[Dict]:
     hits = []
     for r in resultados:
-        arquivo = r.get("arquivo_original", r.get("arquivo", ""))
+        arquivo      = r.get("arquivo_original", r.get("arquivo", ""))
+        pre_existente = r.get("pre_existente", False)  # True = nao tocado, legado
         for item in r.get("erros", []) + r.get("avisos", []):
             hits.append({
                 "arquivo":       arquivo,
                 "linha":         item.get("linha", 0),
                 "tipo":          item.get("bug", ""),
-                "sev_estimada":  "CRITICO" if item.get("tipo") == "ERRO" else "MEDIO",
+                "sev_estimada":  "ADVERTENCIA" if pre_existente else (
+                                 "CRITICO" if item.get("tipo") == "ERRO" else "MEDIO"),
                 "codigo":        "",
                 "contexto":      item.get("mensagem", ""),
                 "match":         item.get("mensagem", "")[:80],
-                "pre_existente": False,
+                "pre_existente": pre_existente,
             })
     return hits
 
@@ -307,23 +332,38 @@ def main():
     print(f"\n[1/3] Coletando arquivos modificados...")
 
     if args.modo_git:
-        arquivos = listar_arquivos_git(repo_path)
+        mapa = listar_arquivos_git(repo_path)
     else:
-        arquivos = listar_arquivos_modificados(dir_web, dir_cnpj)
+        mapa = listar_arquivos(dir_web, dir_cnpj)
 
-    print(f"      {len(arquivos)} arquivo(s) modificado(s)")
-    for a in arquivos:
-        print(f"        + {a}")
+    modificados  = mapa["modificados"]
+    nao_tocados  = mapa["nao_tocados"]
 
-    if not arquivos:
-        print("\n[OK] Nenhum arquivo modificado. Nada a analisar.")
+    print(f"      {len(modificados)} modificado(s) | {len(nao_tocados)} nao tocado(s)")
+    for a in modificados:
+        print(f"        [MOD] {a}")
+    for a in nao_tocados[:10]:  # mostra so os primeiros 10 para nao poluir
+        print(f"        [LEG] {a}")
+    if len(nao_tocados) > 10:
+        print(f"        ... e mais {len(nao_tocados) - 10} nao tocados")
+
+    if not modificados and not nao_tocados:
+        print("\n[OK] Nenhum arquivo encontrado. Nada a analisar.")
         sys.exit(0)
 
     # ------------------------------------------------------------------
     # PASSO 2 — Analise estatica (sem API)
     # ------------------------------------------------------------------
     print(f"\n[2/3] Analise estatica...")
-    resultados   = rodar_analise(arquivos, dir_cnpj, repo_path, branch_cnpj)
+
+    # Modificados — severidade normal
+    resultados = rodar_analise(modificados, dir_cnpj, repo_path, branch_cnpj)
+
+    # Nao tocados — marca como pre_existente para Claude classificar como ADVERTENCIA
+    resultados_leg = rodar_analise(nao_tocados, dir_cnpj, repo_path, branch_cnpj)
+    for r in resultados_leg:
+        r["pre_existente"] = True  # sinaliza que nunca foi migrado
+    resultados += resultados_leg
     total_erros  = sum(len(r.get("erros",  [])) for r in resultados)
     total_avisos = sum(len(r.get("avisos", [])) for r in resultados)
     print(f"      {total_erros} erros criticos | {total_avisos} avisos")
