@@ -69,6 +69,8 @@ def parse_args():
     p.add_argument("--dry-run",        action="store_true",
                    help="Roda so analise estatica, sem chamar API")
     p.add_argument("--json-only",      action="store_true")
+    p.add_argument("--output",    "-o", default=None,
+                   help="Diretorio de saida para JSON e HTML (default: dir-cnpj)")
     p.add_argument("--modo-git",       action="store_true",
                    help="Usa git diff em vez de comparar diretorios (modo local)")
     return p.parse_args()
@@ -420,9 +422,13 @@ def main():
         imprimir_bugs_claude(resultado_claude.get("bugs", []))
 
     # ------------------------------------------------------------------
-    # Salva resultados no diretorio CNPJ
+    # Salva resultados
     # ------------------------------------------------------------------
-    saida = dir_cnpj if dir_cnpj else Path(repo_path)
+    if args.output:
+        saida = Path(args.output)
+        saida.mkdir(parents=True, exist_ok=True)
+    else:
+        saida = dir_cnpj if dir_cnpj else Path(repo_path)
     json_path = saida / f"analise-cnpj-{modulo}.json"
     json_path.write_text(
         json.dumps({"modulo": modulo, "analise": resultados,
