@@ -306,11 +306,34 @@ def main():
         # Modo Jenkins — dois diretorios separados
         repo_path   = None
         branch_cnpj = None
-        if modulo == ".":
-            modulo = Path.cwd().name
 
-        dir_web  = Path(args.dir_web)  if args.dir_web  else BASE_WEB  / modulo
-        dir_cnpj = Path(args.dir_cnpj) if args.dir_cnpj else BASE_CNPJ / modulo
+        # Resolve dir_cnpj
+        if args.dir_cnpj:
+            dir_cnpj = Path(args.dir_cnpj)
+        elif modulo == ".":
+            dir_cnpj = Path.cwd()
+        else:
+            dir_cnpj = BASE_CNPJ / modulo
+
+        # Modulo sempre e so o nome da pasta final
+        modulo = dir_cnpj.name
+
+        # Resolve dir_web — se nao passado, deriva do path do CNPJ
+        # Ex: /Systextil/workspace/WEB/prod/CNPJ/efic
+        #  -> /Systextil/workspace/WEB/prod/WEB-prod/efic
+        if args.dir_web:
+            dir_web = Path(args.dir_web)
+        else:
+            # Sobe um nivel (tira o modulo), troca o nome da pasta pai por WEB-prod
+            dir_cnpj_pai = dir_cnpj.parent
+            dir_web = dir_cnpj_pai.parent / "WEB-prod" / modulo
+            if not dir_web.exists():
+                # Tenta variacoes comuns do nome do branch WEB
+                for nome_web in ("WEB-prod", "WEB", "master", "main"):
+                    tentativa = dir_cnpj_pai.parent / nome_web / modulo
+                    if tentativa.exists():
+                        dir_web = tentativa
+                        break
 
         if not dir_cnpj.exists():
             print(f"ERRO: diretorio CNPJ nao encontrado: {dir_cnpj}")
