@@ -40,7 +40,7 @@ DEFAULT_SKILL    = Path(__file__).parent / "analise-cnpj.md"
 DEFAULT_EXEMPLOS = Path(__file__).parent / "exemplos"
 
 # Paths fixos dos workspaces no Jenkins
-BASE_WEB  = Path("/Systextil/workspace/WEB/dev/")
+BASE_WEB  = Path("/Systextil/workspace/WEB/dev")
 BASE_CNPJ = Path("/Systextil/workspace/WEB/prod/CNPJ")
 
 # Extensoes e pastas vem do config.py
@@ -324,16 +324,13 @@ def main():
         if args.dir_web:
             dir_web = Path(args.dir_web)
         else:
-            # Sobe um nivel (tira o modulo), troca o nome da pasta pai por WEB-prod
-            dir_cnpj_pai = dir_cnpj.parent
-            dir_web = dir_cnpj_pai.parent / "WEB-prod" / modulo
+            # Deriva o WEB a partir do CNPJ
+            # /Systextil/workspace/WEB/prod/CNPJ/efic -> /Systextil/workspace/WEB/dev/efic
+            dir_web = BASE_WEB / modulo
             if not dir_web.exists():
-                # Tenta variacoes comuns do nome do branch WEB
-                for nome_web in ("WEB-prod", "WEB", "master", "main"):
-                    tentativa = dir_cnpj_pai.parent / nome_web / modulo
-                    if tentativa.exists():
-                        dir_web = tentativa
-                        break
+                print(f"AVISO: diretorio WEB nao encontrado: {dir_web}")
+                print(f"       Usando so analise do CNPJ sem comparacao de diff.")
+                dir_web = None
 
         if not dir_cnpj.exists():
             print(f"ERRO: diretorio CNPJ nao encontrado: {dir_cnpj}")
@@ -356,6 +353,12 @@ def main():
 
     if args.modo_git:
         mapa = listar_arquivos_git(repo_path)
+    elif dir_web is None:
+        # WEB nao encontrado — analisa tudo como modificado
+        todos = [str(f.relative_to(dir_cnpj))
+                 for f in dir_cnpj.rglob("*")
+                 if f.is_file() and _deve_incluir(f.relative_to(dir_cnpj))]
+        mapa = {"modificados": sorted(todos), "nao_tocados": []}
     else:
         mapa = listar_arquivos(dir_web, dir_cnpj)
 
