@@ -33,6 +33,7 @@ from typing import List, Dict, Any, Optional
 import grep_engine
 from claude_analyzer import analisar
 from report          import gerar_html
+from config import PASTAS_INCLUIR, PASTAS_EXCLUIR, EXTENSOES_ANALISAR
 
 
 DEFAULT_SKILL    = Path(__file__).parent / "analise-cnpj.md"
@@ -42,7 +43,7 @@ DEFAULT_EXEMPLOS = Path(__file__).parent / "exemplos"
 BASE_WEB  = Path("/Systextil/workspace/WEB/prod/WEB-prod")
 BASE_CNPJ = Path("/Systextil/workspace/WEB/prod/CNPJ")
 
-EXTENSOES = [".java", ".fj", ".fx", ".jsp"]
+# Extensoes e pastas vem do config.py
 
 ICONES = {
     "CRITICO":        "🔴",
@@ -77,31 +78,48 @@ def parse_args():
 # Comparacao de diretorios — sem Git
 # ---------------------------------------------------------------------------
 
+def _deve_incluir(relativo: Path) -> bool:
+    """
+    Retorna True se o arquivo deve ser analisado:
+    - Extensao esta em EXTENSOES_ANALISAR
+    - Passa por pelo menos uma pasta de PASTAS_INCLUIR
+    - Nao passa por nenhuma pasta de PASTAS_EXCLUIR
+    """
+    partes = set(relativo.parts)
+
+    if relativo.suffix not in EXTENSOES_ANALISAR:
+        return False
+    if any(p in PASTAS_EXCLUIR for p in partes):
+        return False
+    if not any(p in PASTAS_INCLUIR for p in partes):
+        return False
+    return True
+
+
 def listar_arquivos_modificados(dir_web: Path, dir_cnpj: Path) -> List[str]:
     """
     Compara os dois diretorios recursivamente.
     Retorna paths relativos dos arquivos que:
       - Existem no CNPJ e sao diferentes do WEB (modificados)
       - Existem no CNPJ mas nao no WEB (novos)
-    Filtra pelas extensoes de interesse.
+    Aplica filtros de pastas e extensoes do config.py.
     """
     modificados = []
 
     for arquivo_cnpj in dir_cnpj.rglob("*"):
         if not arquivo_cnpj.is_file():
             continue
-        if not any(arquivo_cnpj.suffix == e for e in EXTENSOES):
+
+        relativo = arquivo_cnpj.relative_to(dir_cnpj)
+
+        if not _deve_incluir(relativo):
             continue
 
-        # Path relativo a partir da raiz do modulo
-        relativo = arquivo_cnpj.relative_to(dir_cnpj)
         arquivo_web = dir_web / relativo
 
         if not arquivo_web.exists():
-            # Arquivo novo no CNPJ
             modificados.append(str(relativo))
         elif not filecmp.cmp(str(arquivo_web), str(arquivo_cnpj), shallow=False):
-            # Arquivo modificado
             modificados.append(str(relativo))
 
     return sorted(modificados)
@@ -120,7 +138,7 @@ def listar_arquivos_git(repo_path: str) -> List[str]:
         cwd=repo_path, capture_output=True, text=True,
     )
     todos = result.stdout.splitlines()
-    return [f for f in todos if any(f.endswith(e) for e in EXTENSOES)]
+    return [f for f in todos if _deve_incluir(Path(f))]
 
 
 # ---------------------------------------------------------------------------

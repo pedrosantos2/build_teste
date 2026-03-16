@@ -74,7 +74,7 @@ SUFIXOS_NOVOS   = ('_r', '_o')
 EXTENSOES = {
     "java":     [".java"],
     "forms":    [".fj"],
-    "frontend": [".fx", ".jsp"],
+    "frontend": [".jsp"],
     "config":   ["pom.xml", "java.xml"],
 }
 
@@ -85,8 +85,13 @@ IGNORAR_PADROES = [
     "*package-info*"
 ]
 
-# Pastas que DEVEM ser analisadas
-PASTAS_INCLUIR = {"src", "batch", "controller", "systextil"}
+# Pastas que DEVEM ser analisadas — so codigo fonte
+# Arquivos fora dessas pastas sao ignorados (output, build, etc)
+PASTAS_INCLUIR = {"src", "sources", "batch", "controller", "systextil"}
 
 # Pastas que NUNCA devem ser analisadas
-PASTAS_EXCLUIR = {"output", "temp", "target", ".git", "build", "node_modules"}
+PASTAS_EXCLUIR = {"output", "temp", "target", ".git", "build", "node_modules",
+                  "webnxj", "unify", "compilation", "ear-contents", "war-contents"}
+
+# Extensoes analisadas — .fx e layout gerado, nao precisa verificar
+EXTENSOES_ANALISAR = {".java", ".fj", ".jsp"}
