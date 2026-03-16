@@ -1,44 +1,55 @@
 #!/usr/bin/env python3
 # =============================================================================
 # analise.py — Entrypoint principal
-# Uso: python analise.py [modulo] [--workspace path] [--dry-run] [--json-only]
+# Uso: python analise.py <modulo> [opcoes]
+#
+# Modo Jenkins (dois workspaces separados):
+#   python analise.py efic \
+#       --dir-web  /Systextil/workspace/WEB/prod/WEB-prod/efic \
+#       --dir-cnpj /Systextil/workspace/WEB/prod/CNPJ/efic
+#
+# Modo local (dois branches no mesmo repo):
+#   python analise.py . --modo-git
 #
 # Fluxo:
-#   1. git diff              -> lista arquivos modificados entre branches
-#   2. grep_engine.py              -> analise estatica completa (sem API, gratis)
+#   1. Compara dir-web vs dir-cnpj  -> lista arquivos modificados
+#   2. grep_engine                  -> analise estatica (sem API, gratis)
 #   3. Se houver erros:
-#      Claude API            -> confirma falsos positivos + sugere correcoes
+#      Claude API                   -> confirma falsos positivos + correcoes
 #   4. Relatorio HTML + JSON
-#   5. exit 1 se criticos confirmados, exit 0 se limpo
+#   5. exit 1 se criticos, exit 0 se limpo
 # =============================================================================
 
 import argparse
+import filecmp
 import json
-import sys
-import subprocess
 import os
+import subprocess
+import sys
+import tempfile
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 
-import grep_engine as grep_engine
-from grep_engine     import (
-    _resolver_branch_cnpj,
-    _resolver_branch_principal,
-)
+import grep_engine
 from claude_analyzer import analisar
 from report          import gerar_html
 
 
-DEFAULT_SKILL     = Path(__file__).parent / "analise-cnpj.md"
-DEFAULT_EXEMPLOS  = Path(__file__).parent / "exemplos"
-DEFAULT_WORKSPACE = Path("/Systextil/workspace")
+DEFAULT_SKILL    = Path(__file__).parent / "analise-cnpj.md"
+DEFAULT_EXEMPLOS = Path(__file__).parent / "exemplos"
+
+# Paths fixos dos workspaces no Jenkins
+BASE_WEB  = Path("/Systextil/workspace/WEB/prod/WEB-prod")
+BASE_CNPJ = Path("/Systextil/workspace/WEB/prod/CNPJ")
+
+EXTENSOES = [".java", ".fj", ".fx", ".jsp"]
 
 ICONES = {
-    "CRITICO":     "🔴",
-    "MEDIO":       "🟠",
-    "BAIXO":       "🟡",
-    "SUGESTAO":    "🔵",
-    "ADVERTENCIA": "🟣",
+    "CRITICO":        "🔴",
+    "MEDIO":          "🟠",
+    "BAIXO":          "🟡",
+    "SUGESTAO":       "🔵",
+    "ADVERTENCIA":    "🟣",
     "FALSO_POSITIVO": "🟢",
 }
 ORDEM_SEVERIDADE = ["CRITICO", "MEDIO", "BAIXO", "SUGESTAO", "ADVERTENCIA"]
@@ -47,100 +58,174 @@ ORDEM_SEVERIDADE = ["CRITICO", "MEDIO", "BAIXO", "SUGESTAO", "ADVERTENCIA"]
 def parse_args():
     p = argparse.ArgumentParser(description="Analise CNPJ alfanumerico — Systextil")
     p.add_argument("modulo", nargs="?", default=".",
-                   help="Nome do modulo ou '.' para diretorio atual")
-    p.add_argument("--skill",     "-s", default=str(DEFAULT_SKILL))
-    p.add_argument("--exemplos",  "-e", default=str(DEFAULT_EXEMPLOS))
-    p.add_argument("--workspace", "-w", default=str(DEFAULT_WORKSPACE))
-    p.add_argument("--dry-run",         action="store_true",
+                   help="Nome do modulo (ex: efic) ou '.' para diretorio atual")
+    p.add_argument("--dir-web",  default=None,
+                   help="Path do workspace WEB (ex: /Systextil/.../WEB-prod/efic)")
+    p.add_argument("--dir-cnpj", default=None,
+                   help="Path do workspace CNPJ (ex: /Systextil/.../CNPJ/efic)")
+    p.add_argument("--skill",    "-s", default=str(DEFAULT_SKILL))
+    p.add_argument("--exemplos", "-e", default=str(DEFAULT_EXEMPLOS))
+    p.add_argument("--dry-run",        action="store_true",
                    help="Roda so analise estatica, sem chamar API")
-    p.add_argument("--json-only",       action="store_true")
+    p.add_argument("--json-only",      action="store_true")
+    p.add_argument("--modo-git",       action="store_true",
+                   help="Usa git diff em vez de comparar diretorios (modo local)")
     return p.parse_args()
 
 
 # ---------------------------------------------------------------------------
-# Git helpers
+# Comparacao de diretorios — sem Git
 # ---------------------------------------------------------------------------
 
-def diff_arquivos(repo_path: str, branch_main: str, branch_cnpj: str,
-                  extensoes: List[str]) -> List[str]:
+def listar_arquivos_modificados(dir_web: Path, dir_cnpj: Path) -> List[str]:
+    """
+    Compara os dois diretorios recursivamente.
+    Retorna paths relativos dos arquivos que:
+      - Existem no CNPJ e sao diferentes do WEB (modificados)
+      - Existem no CNPJ mas nao no WEB (novos)
+    Filtra pelas extensoes de interesse.
+    """
+    modificados = []
+
+    for arquivo_cnpj in dir_cnpj.rglob("*"):
+        if not arquivo_cnpj.is_file():
+            continue
+        if not any(arquivo_cnpj.suffix == e for e in EXTENSOES):
+            continue
+
+        # Path relativo a partir da raiz do modulo
+        relativo = arquivo_cnpj.relative_to(dir_cnpj)
+        arquivo_web = dir_web / relativo
+
+        if not arquivo_web.exists():
+            # Arquivo novo no CNPJ
+            modificados.append(str(relativo))
+        elif not filecmp.cmp(str(arquivo_web), str(arquivo_cnpj), shallow=False):
+            # Arquivo modificado
+            modificados.append(str(relativo))
+
+    return sorted(modificados)
+
+
+# ---------------------------------------------------------------------------
+# Comparacao via Git — modo local
+# ---------------------------------------------------------------------------
+
+def listar_arquivos_git(repo_path: str) -> List[str]:
+    from grep_engine import _resolver_branch_cnpj, _resolver_branch_principal
+    branch_cnpj = _resolver_branch_cnpj(repo_path)
+    branch_main = _resolver_branch_principal(repo_path)
     result = subprocess.run(
         ["git", "diff", f"{branch_main}..{branch_cnpj}", "--name-only"],
         cwd=repo_path, capture_output=True, text=True,
     )
     todos = result.stdout.splitlines()
-    return [f for f in todos if any(f.endswith(e) for e in extensoes)]
+    return [f for f in todos if any(f.endswith(e) for e in EXTENSOES)]
 
 
-def checkout_temp(repo_path: str, branch: str, arquivo: str) -> Optional[Path]:
-    """Extrai arquivo do branch para temp — grep_engine precisa de path real no disco."""
-    import tempfile
-    result = subprocess.run(
-        ["git", "show", f"{branch}:{arquivo}"],
-        cwd=repo_path, capture_output=True
-    )
-    if result.returncode != 0:
+# ---------------------------------------------------------------------------
+# Analise estatica
+# ---------------------------------------------------------------------------
+
+def analisar_arquivo_do_disco(path_real: str, path_relativo: str) -> Optional[Dict]:
+    """Roda grep_engine.analisar_arquivo em um arquivo real no disco."""
+    if grep_engine.deve_ignorar(path_relativo):
         return None
-    suffix = Path(arquivo).suffix or ".java"
-    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix, mode="wb")
-    tmp.write(result.stdout)
-    tmp.close()
-    return Path(tmp.name)
+    r = grep_engine.analisar_arquivo(path_real)
+    if r:
+        r["arquivo_original"] = path_relativo
+        r["arquivo"]          = Path(path_relativo).name
+    return r
 
 
-# ---------------------------------------------------------------------------
-# Analise estatica com grep_engine (sem API)
-# ---------------------------------------------------------------------------
-
-def rodar_grep_engine(repo_path: str, branch_cnpj: str,
-                arquivos: List[str]) -> List[Dict[str, Any]]:
+def rodar_analise(arquivos: List[str], dir_cnpj: Optional[Path],
+                  repo_path: Optional[str], branch_cnpj: Optional[str]) -> List[Dict]:
+    """
+    Para cada arquivo modificado:
+      - Modo diretorio: le direto do dir_cnpj
+      - Modo git: extrai via git show para temp
+    """
     resultados = []
-    for arquivo in arquivos:
-        if not arquivo.endswith(".java"):
-            continue
-        if grep_engine.deve_ignorar(arquivo):
+
+    for relativo in arquivos:
+        if not relativo.endswith(".java"):
             continue
 
-        tmp = checkout_temp(repo_path, branch_cnpj, arquivo)
-        if not tmp:
-            continue
-        try:
-            r = grep_engine.analisar_arquivo(str(tmp))
-            if r:
-                r["arquivo_original"] = arquivo
-                r["arquivo"]          = Path(arquivo).name
-                resultados.append(r)
-        finally:
-            os.unlink(tmp)
+        if dir_cnpj:
+            # Modo Jenkins — arquivo ja esta no disco
+            path_real = str(dir_cnpj / relativo)
+            if not Path(path_real).exists():
+                continue
+            r = analisar_arquivo_do_disco(path_real, relativo)
+
+        else:
+            # Modo git — extrai para temp
+            result = subprocess.run(
+                ["git", "show", f"{branch_cnpj}:{relativo}"],
+                cwd=repo_path, capture_output=True
+            )
+            if result.returncode != 0:
+                continue
+            tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".java", mode="wb")
+            tmp.write(result.stdout)
+            tmp.close()
+            try:
+                r = analisar_arquivo_do_disco(tmp.name, relativo)
+            finally:
+                os.unlink(tmp.name)
+
+        if r:
+            resultados.append(r)
 
     return resultados
 
 
-def imprimir_grep_engine(resultados: List[Dict[str, Any]]) -> int:
-    """Imprime resultados do grep_engine e retorna total de erros criticos."""
+# ---------------------------------------------------------------------------
+# Console output
+# ---------------------------------------------------------------------------
+
+def imprimir_resultados(resultados: List[Dict]) -> int:
     total_erros = 0
     for r in resultados:
-        erros  = r.get("erros", [])
+        erros  = r.get("erros",  [])
         avisos = r.get("avisos", [])
         total_erros += len(erros)
-
         if not erros and not avisos:
             continue
-
         arquivo   = r.get("arquivo_original", r.get("arquivo", ""))
         categoria = r.get("categoria", "?")
         icone     = {"ERRO": "🔴", "ATENCAO": "🟠", "VERIFICADO": "🟢"}.get(categoria, "⬜")
-
         print(f"\n  {icone} [{categoria}] {arquivo}")
         for e in erros:
             print(f"     🔴 Linha {e.get('linha','?')} [{e.get('bug','')}]: {e.get('mensagem','')}")
         for a in avisos:
             print(f"     🟠 Linha {a.get('linha','?')} [{a.get('bug','')}]: {a.get('mensagem','')}")
-
     return total_erros
 
 
-def converter_para_hits(resultados: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """Converte erros do grep_engine para o formato que o claude_analyzer espera."""
+def imprimir_bugs_claude(bugs: List[Dict]) -> None:
+    bugs_reais = [b for b in bugs if b.get("severidade") != "FALSO_POSITIVO"]
+    if not bugs_reais:
+        return
+    print("\n" + "-" * 60)
+    print("  CLAUDE — falsos positivos removidos, correcoes sugeridas")
+    print("-" * 60)
+    for sev in ORDEM_SEVERIDADE:
+        grupo = [b for b in bugs_reais if b.get("severidade") == sev]
+        if not grupo:
+            continue
+        print(f"\n{ICONES.get(sev,'?')} {sev} ({len(grupo)})")
+        for bug in grupo:
+            print(f"  {'-'*56}")
+            print(f"  >> {bug.get('arquivo','')} : linha {bug.get('linha','')}")
+            print(f"  Tipo:     {bug.get('tipo','')}")
+            print(f"  Detalhe:  {bug.get('descricao','')}")
+            if bug.get("correcao"):
+                print(f"  Correcao: {bug.get('correcao','')}")
+    print("\n" + "-" * 60)
+
+
+def converter_para_hits(resultados: List[Dict]) -> List[Dict]:
     hits = []
     for r in resultados:
         arquivo = r.get("arquivo_original", r.get("arquivo", ""))
@@ -159,34 +244,6 @@ def converter_para_hits(resultados: List[Dict[str, Any]]) -> List[Dict[str, Any]
 
 
 # ---------------------------------------------------------------------------
-# Console output — bugs confirmados pelo Claude
-# ---------------------------------------------------------------------------
-
-def imprimir_bugs_claude(bugs: List[Dict[str, Any]]) -> None:
-    bugs_reais = [b for b in bugs if b.get("severidade") != "FALSO_POSITIVO"]
-    if not bugs_reais:
-        return
-
-    print("\n" + "-" * 60)
-    print("  CLAUDE — falsos positivos removidos, correcoes sugeridas")
-    print("-" * 60)
-
-    for sev in ORDEM_SEVERIDADE:
-        grupo = [b for b in bugs_reais if b.get("severidade") == sev]
-        if not grupo:
-            continue
-        print(f"\n{ICONES.get(sev,'⚪')} {sev} ({len(grupo)})")
-        for bug in grupo:
-            print(f"  {'-'*56}")
-            print(f"  📄 {bug.get('arquivo','')} : linha {bug.get('linha','')}")
-            print(f"  Tipo:     {bug.get('tipo','')}")
-            print(f"  Detalhe:  {bug.get('descricao','')}")
-            if bug.get("correcao"):
-                print(f"  Correcao: {bug.get('correcao','')}")
-    print("\n" + "-" * 60)
-
-
-# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -194,67 +251,78 @@ def main():
     args   = parse_args()
     modulo = args.modulo
 
-    if modulo == ".":
-        repo_path = str(Path.cwd())
-        modulo    = Path.cwd().name
+    # Resolve paths
+    if args.modo_git:
+        # Modo local — usa git diff
+        repo_path  = str(Path.cwd()) if modulo == "." else modulo
+        modulo     = Path(repo_path).name
+        dir_web    = None
+        dir_cnpj   = None
+        branch_cnpj = None
     else:
-        repo_path = str(Path(args.workspace) / modulo)
+        # Modo Jenkins — dois diretorios separados
+        repo_path   = None
+        branch_cnpj = None
+        if modulo == ".":
+            modulo = Path.cwd().name
+
+        dir_web  = Path(args.dir_web)  if args.dir_web  else BASE_WEB  / modulo
+        dir_cnpj = Path(args.dir_cnpj) if args.dir_cnpj else BASE_CNPJ / modulo
+
+        if not dir_cnpj.exists():
+            print(f"ERRO: diretorio CNPJ nao encontrado: {dir_cnpj}")
+            sys.exit(1)
+        if not dir_web.exists():
+            print(f"ERRO: diretorio WEB nao encontrado: {dir_web}")
+            sys.exit(1)
 
     print(f"\n{'='*60}")
     print(f"  Analise CNPJ — modulo: {modulo}")
+    if dir_web:
+        print(f"  WEB  : {dir_web}")
+        print(f"  CNPJ : {dir_cnpj}")
     print(f"{'='*60}")
-
-    try:
-        branch_cnpj = _resolver_branch_cnpj(repo_path)
-        branch_main = _resolver_branch_principal(repo_path)
-    except RuntimeError as e:
-        print(f"ERRO: {e}")
-        sys.exit(1)
-
-    print(f"  Branch principal : {branch_main}")
-    print(f"  Branch CNPJ      : {branch_cnpj}")
 
     # ------------------------------------------------------------------
     # PASSO 1 — Arquivos modificados
     # ------------------------------------------------------------------
     print(f"\n[1/3] Coletando arquivos modificados...")
-    arquivos = diff_arquivos(
-        repo_path, branch_main, branch_cnpj,
-        [".java", ".fj", ".fx", ".jsp"]
-    )
-    print(f"      {len(arquivos)} arquivo(s)")
+
+    if args.modo_git:
+        arquivos = listar_arquivos_git(repo_path)
+    else:
+        arquivos = listar_arquivos_modificados(dir_web, dir_cnpj)
+
+    print(f"      {len(arquivos)} arquivo(s) modificado(s)")
     for a in arquivos:
         print(f"        + {a}")
 
     if not arquivos:
-        print("\n✅ Nenhum arquivo modificado. Nada a analisar.")
+        print("\n[OK] Nenhum arquivo modificado. Nada a analisar.")
         sys.exit(0)
 
     # ------------------------------------------------------------------
-    # PASSO 2 — Analise estatica local com grep_engine (sem API, gratis)
+    # PASSO 2 — Analise estatica (sem API)
     # ------------------------------------------------------------------
-    print(f"\n[2/3] Analise estatica (grep_engine)...")
-    resultados = rodar_grep_engine(repo_path, branch_cnpj, arquivos)
+    print(f"\n[2/3] Analise estatica...")
+    resultados   = rodar_analise(arquivos, dir_cnpj, repo_path, branch_cnpj)
     total_erros  = sum(len(r.get("erros",  [])) for r in resultados)
     total_avisos = sum(len(r.get("avisos", [])) for r in resultados)
     print(f"      {total_erros} erros criticos | {total_avisos} avisos")
-
-    imprimir_grep_engine(resultados)
+    imprimir_resultados(resultados)
 
     # ------------------------------------------------------------------
-    # PASSO 3 — Claude so e chamado se houver erros
+    # PASSO 3 — Claude (so se houver erros)
     # ------------------------------------------------------------------
     resultado_claude = {"modulo": modulo, "bugs": [], "resumo": {}}
 
     if not total_erros and not total_avisos:
-        print(f"\n[3/3] Nenhum erro encontrado — API nao sera chamada.")
-
+        print(f"\n[3/3] Sem erros — API nao sera chamada.")
     elif args.dry_run:
         print(f"\n[3/3] --dry-run: pulando chamada a API.")
-
     else:
         hits = converter_para_hits(resultados)
-        print(f"\n[3/3] Enviando {len(hits)} item(ns) ao Claude para confirmacao...")
+        print(f"\n[3/3] Enviando {len(hits)} item(ns) ao Claude...")
         resultado_claude = analisar(
             modulo       = modulo,
             hits         = hits,
@@ -265,23 +333,21 @@ def main():
         print(f"      Tokens: {uso.get('input_tokens',0):,} input "
               f"| {uso.get('output_tokens',0):,} output "
               f"| {uso.get('cache_read_tokens',0):,} cache")
-
         imprimir_bugs_claude(resultado_claude.get("bugs", []))
 
     # ------------------------------------------------------------------
-    # Salva resultados
+    # Salva resultados no diretorio CNPJ
     # ------------------------------------------------------------------
-    base = Path(repo_path)
-
-    json_path = base / f"analise-cnpj-{modulo}.json"
+    saida = dir_cnpj if dir_cnpj else Path(repo_path)
+    json_path = saida / f"analise-cnpj-{modulo}.json"
     json_path.write_text(
-        json.dumps({"modulo": modulo, "grep_engine": resultados,
+        json.dumps({"modulo": modulo, "analise": resultados,
                     "claude": resultado_claude}, ensure_ascii=False, indent=2)
     )
     print(f"\n      JSON: {json_path}")
 
     if not args.json_only and resultado_claude.get("bugs"):
-        html_path = base / f"analise-cnpj-{modulo}.html"
+        html_path = saida / f"analise-cnpj-{modulo}.html"
         gerar_html(resultado_claude, str(html_path))
 
     # ------------------------------------------------------------------
@@ -292,20 +358,19 @@ def main():
 
     print(f"\n{'='*60}")
     print(f"  RESULTADO — {modulo}")
-    print(f"  grep_engine: {total_erros} erros | {total_avisos} avisos")
+    print(f"  Estatica : {total_erros} erros | {total_avisos} avisos")
     if not args.dry_run:
-        print(f"  Claude : {criticos_confirmados} criticos confirmados "
+        print(f"  Claude   : {criticos_confirmados} criticos confirmados "
               f"| {r.get('falsos_positivos',0)} falsos positivos removidos")
     print(f"{'='*60}\n")
 
-    # Se dry-run, bloqueia pelo grep_engine; se nao, bloqueia pelo Claude
     deve_bloquear = total_erros > 0 if args.dry_run else criticos_confirmados > 0
 
     if deve_bloquear:
-        print("❌ Bugs criticos encontrados — verifique o relatorio antes do merge.")
+        print("[FALHOU] Bugs criticos encontrados — verifique antes do merge.")
         sys.exit(1)
     else:
-        print("✅ Nenhum bug critico confirmado.")
+        print("[OK] Nenhum bug critico confirmado.")
         sys.exit(0)
 
 
