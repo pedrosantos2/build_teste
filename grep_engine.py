@@ -787,6 +787,13 @@ def detectar_cnpj_legado_em_sql(texto_limpo):
 
         sql_block = ' '.join(frags)
 
+        # Pula blocos SQL que referenciam tabelas nativas VARCHAR2
+        pat_tabela = re.compile(r'\b(from|into|update)\s+([a-z0-9_]+)', re.IGNORECASE)
+        tabelas_no_bloco = {m.group(2).upper() for m in pat_tabela.finditer(sql_block)}
+        if tabelas_no_bloco & TABELAS_NATIVAS_VARCHAR2:
+            i += 1
+            continue
+
         def _verificar(base, digit, col_display):
             if not any(kw in base for kw in PALAVRAS_CNPJ):
                 return
