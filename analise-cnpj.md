@@ -263,3 +263,55 @@ Arquivos `.jsp` que referenciam tabelas de `TABELAS_DUALIDADE` ou colunas CNPJ m
 - Reportar como: `jsp_nao_migrado`
 - Severidade: `ADVERTENCIA`
 - Ação sugerida: revisar manualmente se o JSP precisa ser atualizado
+
+---
+
+## Regras de Identificação de Colunas CNPJ Reais (Anti Falso Positivo)
+
+### Regra do Trio Completo
+
+Uma coluna com sufixo numérico (`_9`, `_4`, `9`, `4`) **só é coluna CNPJ real** se existir o **trio completo** no mesmo contexto (SELECT, INSERT ou declaração):
+
+- Raiz: `cgc_9` ou `cgc_r`
+- Ordem: `cgc_4` ou `cgc_o`  
+- Dígito: `cgc_2` ou `cgc_d`
+
+**Se não existir a coluna `_2` correspondente, é FALSO POSITIVO.**
+
+Exemplos de falso positivo:
+```java
+// "constante4" — não existe constante2 ou constante9 → NÃO é CNPJ
+// "complemento_cliente4" — não existe complemento_cliente2 → NÃO é CNPJ
+// "linha4" — não existe linha2 → NÃO é CNPJ
+```
+
+Exemplo real:
+```java
+// cgc_9, cgc_4, cgc_2 presentes → É CNPJ real, verificar migração
+```
+
+### Regra da Chave Primária para Dualidade
+
+A duplicação de colunas CNPJ em INSERTs de tabelas de dualidade é **obrigatória apenas para colunas que fazem parte da chave primária (PK)** da tabela.
+
+| Situação | Diagnóstico |
+|----------|-------------|
+| Coluna CNPJ é PK e não tem par legado/novo | ❌ ERRO — duplicação obrigatória |
+| Coluna CNPJ **não é PK** e não tem par | ✅ OK — duplicação não obrigatória |
+| `cgc_2` / dígito verificador sem par | ✅ OK — dígito nunca precisa ser duplicado |
+
+**Quando em dúvida sobre PK, classificar como ADVERTÊNCIA, não CRÍTICO.**
+
+### Regra da Palavra-Chave de Domínio
+
+Antes de reportar uma coluna como CNPJ, verificar se alguma parte do nome (separada por `_`) pertence a `PALAVRAS_CNPJ`:
+```
+cnpj, cgc, cod_part, corretora, despachante, courier, facc, tran, terc, cons, cli, for
+```
+
+Se nenhuma parte do nome pertencer à lista → **FALSO POSITIVO**.
+
+Exemplos:
+- `fornec_9` → `fornec` contém `for` → pode ser CNPJ, verificar trio
+- `constante4` → nenhuma parte em PALAVRAS_CNPJ → FALSO POSITIVO
+- `cgc_9` → `cgc` está na lista → verificar trio
