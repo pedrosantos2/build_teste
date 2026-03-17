@@ -349,3 +349,49 @@ INSERT INTO CREC_050 (cgc_r, cgc_o, cgc_2, ...)
 VALUES (?, ?, ?, ...)
 -- Nao precisa de cgc_9/cgc_4 pois CREC_050 nao tem dualidade
 ```
+
+---
+
+## Padrão de Nomenclatura com Sufixo no Meio
+
+Algumas colunas CNPJ têm o sufixo de tipo **no meio do nome**, não no final. O padrão é:
+
+```
+Legado:  cgc9_tbm  / cgc4_tbm  / cgc2_tbm
+Novo:    cgc_tbm_r / cgc_tbm_o / cgc2_tbm
+```
+
+### Regra de identificação
+
+Para colunas onde o sufixo numérico (`9`, `4`, `2`) aparece **antes** de um sufixo textual:
+
+| Padrão legado | Padrão novo | Exemplo |
+|--------------|-------------|---------|
+| `cgcN_xxx` | `cgc_xxx_r` | `cgc9_tbm` → `cgc_tbm_r` |
+| `cgcN_xxx` | `cgc_xxx_o` | `cgc4_tbm` → `cgc_tbm_o` |
+| `cgcN_xxx` | `cgc_xxx_2` | `cgc2_tbm` → inalterado |
+
+### Critério de validação
+
+1. Verificar se existe o trio completo: `cgc9_xxx`, `cgc4_xxx`, `cgc2_xxx`
+2. Se existe o trio → é CNPJ real com nomenclatura especial
+3. Verificar se a versão nova (`cgc_xxx_r`, `cgc_xxx_o`) também existe no contexto
+4. Se **ambos** os pares existem → **VERIFICADO (OK)** — dualidade correta
+5. Se só existe o legado sem o novo → **CRÍTICO** — migração incompleta
+6. Se só existe o novo sem o legado (em tabela de dualidade) → **CRÍTICO** — falta par legado
+
+### Exemplo correto
+```java
+// cgc9_tbm + cgc_tbm_r presentes — dualidade correta
+SELECT cgc9_tbm, cgc4_tbm, cgc2_tbm,
+       cgc_tbm_r, cgc_tbm_o
+FROM tabela
+```
+
+### Exemplo com erro
+```java
+// Só cgc9_tbm sem cgc_tbm_r — migracao incompleta
+SELECT cgc9_tbm, cgc4_tbm, cgc2_tbm
+FROM tabela
+-- FALTA: cgc_tbm_r, cgc_tbm_o
+```

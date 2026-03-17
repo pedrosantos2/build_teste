@@ -7,6 +7,7 @@
 PALAVRAS_CNPJ = (
     'cnpj', 'cgc', 'cod_part', 'corretora', 'despachante',
     'courier', 'facc', 'tran', 'terc', 'cons', 'cli', 'for',
+    'tbm',  # sufixo especial: cgc9_tbm / cgc_tbm_r
 )
 
 # Tabelas que possuem colunas CNPJ (dualidade numérico/alfanumérico)
@@ -64,6 +65,9 @@ COLUNAS_RENOMEADAS = {
     "fornec_4":           "fornec_o",
     "cli_ped_cgc_cli9":   "cli_ped_cgc_cli_r",
     "cli_ped_cgc_cli4":   "cli_ped_cgc_cli_o",
+    # Padrao com sufixo no meio: cgcN_xxx -> cgc_xxx_r/o
+    "cgc9_tbm":           "cgc_tbm_r",
+    "cgc4_tbm":           "cgc_tbm_o",
 }
 
 # Sufixos legados (numérico) vs novos (varchar)
