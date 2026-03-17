@@ -66,8 +66,9 @@ COLUNAS_RENOMEADAS = {
     "cli_ped_cgc_cli9":   "cli_ped_cgc_cli_r",
     "cli_ped_cgc_cli4":   "cli_ped_cgc_cli_o",
     # Padrao com sufixo no meio: cgcN_xxx -> cgc_xxx_r/o
-    "cgc9_tbm":           "cgc_tbm_r",
-    "cgc4_tbm":           "cgc_tbm_o",
+    # cgc9_tbm/cgc4_tbm pertencem a CREC_050 (VARCHAR2 nativo) — nao sao erros
+    # "cgc9_tbm": "cgc_tbm_r",  <- removido, CREC_050 e nativa
+    # "cgc4_tbm": "cgc_tbm_o",  <- removido, CREC_050 e nativa
 }
 
 # Sufixos legados (numérico) vs novos (varchar)
@@ -105,4 +106,22 @@ EXTENSOES_ANALISAR = {".java", ".fj", ".jsp"}
 # O grep_engine e o Claude devem ignorar checks de dualidade para elas.
 TABELAS_NATIVAS_VARCHAR2 = {
     "CREC_050",
+}
+
+# Colunas que pertencem a tabelas nativas VARCHAR2 e nunca devem ser reportadas como erro.
+# Mesmo que apareçam sem o par novo, estao corretas.
+COLUNAS_NATIVAS_VARCHAR2 = {
+    # CREC_050 — todas as colunas CNPJ ja sao VARCHAR2 nativo
+    # grupo tbm (terceiro banco mandante)
+    "cgc9_tbm",
+    "cgc4_tbm",
+    "cgc2_tbm",
+    "cgc_tbm_r",
+    "cgc_tbm_o",
+    # grupo sacado
+    "cgc9_sacado",
+    "cgc4_sacado",
+    "cgc2_sacado",
+    "cgc_sacado_r",
+    "cgc_sacado_o",
 }
