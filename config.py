@@ -74,7 +74,7 @@ SUFIXOS_NOVOS   = ('_r', '_o')
 EXTENSOES = {
     "java":     [".java"],
     "forms":    [".fj"],
-    "frontend": [".jsp"],
+    "frontend": [".fx", ".jsp"],
     "config":   ["pom.xml", "java.xml"],
 }
 
@@ -95,3 +95,10 @@ PASTAS_EXCLUIR = {"output", "temp", "target", ".git", "build", "node_modules",
 
 # Extensoes analisadas — .fx e layout gerado, nao precisa verificar
 EXTENSOES_ANALISAR = {".java", ".fj", ".jsp"}
+
+# Tabelas que ja foram migradas para VARCHAR2 nativo ANTES da migracao CNPJ.
+# Para essas tabelas, colunas CNPJ ja sao String — nao ha dualidade.
+# O grep_engine e o Claude devem ignorar checks de dualidade para elas.
+TABELAS_NATIVAS_VARCHAR2 = {
+    "CREC_050",
+}

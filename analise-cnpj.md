@@ -315,3 +315,37 @@ Exemplos:
 - `fornec_9` → `fornec` contém `for` → pode ser CNPJ, verificar trio
 - `constante4` → nenhuma parte em PALAVRAS_CNPJ → FALSO POSITIVO
 - `cgc_9` → `cgc` está na lista → verificar trio
+
+---
+
+## Tabelas Já Migradas para VARCHAR2 Nativo
+
+Algumas tabelas já foram migradas para VARCHAR2 nativamente **antes** do processo de migração CNPJ alfanumérico. Para essas tabelas, as colunas CNPJ já são String por natureza — não há dualidade, não há colunas legadas numéricas, e o código que as referencia está **correto como está**.
+
+### Lista de tabelas nativas VARCHAR2
+
+| Tabela | Situação |
+|--------|----------|
+| `CREC_050` | Já migrada — colunas CNPJ são VARCHAR2 nativo |
+
+### Regra de análise
+
+Quando encontrar código que referencia `CREC_050`:
+
+- **NÃO reportar** ausência de colunas legadas (`_9`/`_4`) como erro
+- **NÃO reportar** como dualidade incompleta
+- **NÃO reportar** `getString()` como suspeito
+- Classificar como **VERIFICADO (OK)** — o código está correto
+- Se houver `getInt()` em coluna CNPJ dessa tabela → aí sim é ERRO (estava errado antes da migração)
+
+### Exemplo correto para CREC_050
+```java
+// CORRETO — CREC_050 ja e VARCHAR2 nativo, getString e o esperado
+String cgcR = rs.getString("cgc_r");
+String cgcO = rs.getString("cgc_o");
+
+// INSERT sem colunas legadas — CORRETO para CREC_050
+INSERT INTO CREC_050 (cgc_r, cgc_o, cgc_2, ...)
+VALUES (?, ?, ?, ...)
+-- Nao precisa de cgc_9/cgc_4 pois CREC_050 nao tem dualidade
+```

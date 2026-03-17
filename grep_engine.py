@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 from config import (
-    PALAVRAS_CNPJ, TABELAS_DUALIDADE,
+    PALAVRAS_CNPJ, TABELAS_DUALIDADE, TABELAS_NATIVAS_VARCHAR2,
     IGNORAR_PADROES, PASTAS_INCLUIR, PASTAS_EXCLUIR,
 )
 
@@ -234,6 +234,10 @@ def detectar_bug1(texto_limpo):
                 if m_table:
                     tabela = m_table.group(1).upper()
                     if tabela not in TABELAS_DUALIDADE:
+                        i += 1
+                        continue
+                    # Tabela ja e VARCHAR2 nativo — nao precisa de dualidade
+                    if tabela in TABELAS_NATIVAS_VARCHAR2:
                         i += 1
                         continue
 
