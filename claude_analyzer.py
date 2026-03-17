@@ -1,11 +1,15 @@
 # =============================================================================
-# claude_analyzer.py — Chama a API do Claude com skill + exemplos cacheados
+# claude_analyzer.py — Chama a API do Claude em lotes
+# Maximo de LOTE_MAXIMO hits por chamada para nao estourar o output
 # =============================================================================
 
 import json
 from pathlib import Path
 from typing import List, Dict, Any
+
 import anthropic
+
+LOTE_MAXIMO = 50  # itens por chamada — ajustar se necessario
 
 
 def _carregar_skill(skill_path: str) -> str:
@@ -13,15 +17,6 @@ def _carregar_skill(skill_path: str) -> str:
 
 
 def _carregar_exemplos(exemplos_dir: str) -> str:
-    """
-    Lê pares .antes / .depois da pasta exemplos/.
-    Estrutura:
-      exemplos/
-        efic_e450.java.antes
-        efic_e450.java.depois
-        inte_f140.java.antes
-        inte_f140.java.depois
-    """
     dir_path = Path(exemplos_dir)
     if not dir_path.exists():
         return ""
@@ -48,35 +43,20 @@ def _carregar_exemplos(exemplos_dir: str) -> str:
     return "\n\n".join(partes)
 
 
-def analisar(
-    modulo:       str,
-    hits:         List[Dict[str, Any]],
-    skill_path:   str,
-    exemplos_dir: str,
-) -> dict:
-    """
-    Envia apenas os hits (não o repositório inteiro) pro Claude.
-    System prompt = skill .md + exemplos de referência (ambos cacheados).
-    """
-    client   = anthropic.Anthropic()
-    skill    = _carregar_skill(skill_path)
-    exemplos = _carregar_exemplos(exemplos_dir)
+def _chamar_api(client, modulo: str, hits_lote: list,
+                skill: str, exemplos: str,
+                numero_lote: int, total_lotes: int) -> dict:
+    """Envia um lote de hits e retorna o JSON parseado."""
 
-    # Serializa hits removendo campos desnecessários para economizar tokens
-    # hits ja chegam como List[Dict[str, Any]] do analise.py
-    hits_payload = hits
-
-    prompt_usuario = f"""Analise os candidatos abaixo encontrados na migração CNPJ do módulo **{modulo}**.
+    prompt = f"""Analise os candidatos abaixo (lote {numero_lote}/{total_lotes}) da migracao CNPJ do modulo **{modulo}**.
 
 Para cada item:
-1. Confirme se é bug real ou falso positivo usando o contexto fornecido
-2. Se `pre_existente: true` → severidade máxima é ADVERTENCIA (bug já existia no WEB)
-3. Para `tabela_dualidade` → verifique se as colunas CNPJ usadas nessa tabela estão corretas
-4. Baseie as correções sugeridas nos exemplos de referência
+1. Confirme se e bug real ou falso positivo usando o contexto
+2. Se pre_existente=true: severidade maxima e ADVERTENCIA
+3. Sugira a correcao
 
-Responda SOMENTE com JSON válido, sem markdown, neste formato:
+Responda SOMENTE com JSON valido, sem markdown:
 {{
-  "modulo": "{modulo}",
   "bugs": [
     {{
       "arquivo":    "...",
@@ -86,54 +66,93 @@ Responda SOMENTE com JSON válido, sem markdown, neste formato:
       "descricao":  "...",
       "correcao":   "..."
     }}
-  ],
-  "resumo": {{
-    "criticos":        0,
-    "medios":          0,
-    "baixos":          0,
-    "sugestoes":       0,
-    "advertencias":    0,
-    "falsos_positivos": 0
-  }}
+  ]
 }}
 
-CANDIDATOS ({len(hits_payload)} itens):
-{json.dumps(hits_payload, ensure_ascii=False, indent=2)}"""
+CANDIDATOS ({len(hits_lote)} itens):
+{json.dumps(hits_lote, ensure_ascii=False, indent=2)}"""
 
     response = client.messages.create(
         model      = "claude-sonnet-4-6",
         max_tokens = 8096,
         system     = [
             {
-                # Skill .md — regras de análise — cacheada entre execuções
                 "type": "text",
                 "text": skill,
                 "cache_control": {"type": "ephemeral"},
             },
             {
-                # Exemplos de bugs reais de módulos anteriores — cacheados
                 "type": "text",
-                "text": f"## Exemplos de referência (bugs confirmados em módulos anteriores)\n\n{exemplos}",
+                "text": f"## Exemplos de referencia\n\n{exemplos}",
                 "cache_control": {"type": "ephemeral"},
             },
         ],
-        messages=[{"role": "user", "content": prompt_usuario}],
+        messages=[{"role": "user", "content": prompt}],
     )
 
     raw = response.content[0].text.strip()
-
-    # Remove eventuais blocos ```json ``` que o modelo possa ter adicionado
     if raw.startswith("```"):
         raw = raw.split("\n", 1)[1]
     if raw.endswith("```"):
         raw = raw.rsplit("```", 1)[0]
 
-    resultado           = json.loads(raw.strip())
-    resultado["_usage"] = {
-        "input_tokens":         response.usage.input_tokens,
-        "output_tokens":        response.usage.output_tokens,
-        "cache_creation_tokens": getattr(response.usage, "cache_creation_input_tokens", 0),
-        "cache_read_tokens":    getattr(response.usage, "cache_read_input_tokens", 0),
+    resultado = json.loads(raw.strip())
+    return resultado, response.usage
+
+
+def analisar(
+    modulo:       str,
+    hits:         List[Dict[str, Any]],
+    skill_path:   str,
+    exemplos_dir: str,
+) -> dict:
+    """
+    Envia hits em lotes para o Claude e consolida os resultados.
+    Evita estouro de tokens de output.
+    """
+    client   = anthropic.Anthropic()
+    skill    = _carregar_skill(skill_path)
+    exemplos = _carregar_exemplos(exemplos_dir)
+
+    # Divide em lotes
+    lotes = [hits[i:i + LOTE_MAXIMO] for i in range(0, len(hits), LOTE_MAXIMO)]
+    total_lotes = len(lotes)
+
+    print(f"      {len(hits)} itens divididos em {total_lotes} lote(s) de ate {LOTE_MAXIMO}")
+
+    todos_bugs = []
+    usage_total = {"input_tokens": 0, "output_tokens": 0,
+                   "cache_creation_tokens": 0, "cache_read_tokens": 0}
+
+    for i, lote in enumerate(lotes, 1):
+        print(f"      Lote {i}/{total_lotes} ({len(lote)} itens)...")
+        try:
+            resultado_lote, usage = _chamar_api(
+                client, modulo, lote, skill, exemplos, i, total_lotes
+            )
+            todos_bugs.extend(resultado_lote.get("bugs", []))
+            usage_total["input_tokens"]          += usage.input_tokens
+            usage_total["output_tokens"]         += usage.output_tokens
+            usage_total["cache_creation_tokens"] += getattr(usage, "cache_creation_input_tokens", 0)
+            usage_total["cache_read_tokens"]     += getattr(usage, "cache_read_input_tokens", 0)
+        except json.JSONDecodeError as e:
+            print(f"      AVISO: lote {i} retornou JSON invalido ({e}) — pulando")
+        except Exception as e:
+            print(f"      AVISO: lote {i} falhou ({e}) — pulando")
+
+    # Consolida resumo
+    resumo = {
+        "criticos":         sum(1 for b in todos_bugs if b.get("severidade") == "CRITICO"),
+        "medios":           sum(1 for b in todos_bugs if b.get("severidade") == "MEDIO"),
+        "baixos":           sum(1 for b in todos_bugs if b.get("severidade") == "BAIXO"),
+        "sugestoes":        sum(1 for b in todos_bugs if b.get("severidade") == "SUGESTAO"),
+        "advertencias":     sum(1 for b in todos_bugs if b.get("severidade") == "ADVERTENCIA"),
+        "falsos_positivos": sum(1 for b in todos_bugs if b.get("severidade") == "FALSO_POSITIVO"),
     }
 
-    return resultado
+    return {
+        "modulo":  modulo,
+        "bugs":    todos_bugs,
+        "resumo":  resumo,
+        "_usage":  usage_total,
+    }
