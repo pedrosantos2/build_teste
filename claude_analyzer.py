@@ -3,7 +3,6 @@
 # Maximo de LOTE_MAXIMO hits por chamada para nao estourar o output
 # =============================================================================
 
-from curses import raw
 import json
 from pathlib import Path
 from typing import List, Dict, Any
@@ -51,14 +50,20 @@ def _chamar_api(client, modulo: str, hits_lote: list,
 
     prompt = f"""Analise os candidatos abaixo (lote {numero_lote}/{total_lotes}) da migracao CNPJ do modulo **{modulo}**.
 
+IMPORTANTE:
+- Responda SOMENTE com base nas informacoes fornecidas abaixo
+- NAO tente executar comandos, acessar arquivos ou buscar informacoes externas
+- NAO use ferramentas — analise apenas o contexto ja fornecido em cada item
+- Se o contexto for insuficiente para confirmar, classifique como FALSO_POSITIVO
+
 Para cada item:
-1. Confirme se e bug real ou falso positivo usando o contexto
+1. Confirme se e bug real ou falso positivo usando APENAS o contexto fornecido
 2. Se pre_existente=true: arquivo nao foi tocado na migracao mas tem codigo legado
    - Severidade e CRITICO — todo arquivo do modulo com legado deve ser migrado
    - Usar ADVERTENCIA apenas para bugs estruturais sem relacao com CNPJ (ex: logica AND/OR errada)
 3. Sugira a correcao
 
-Responda SOMENTE com JSON valido, sem markdown:
+Responda SOMENTE com JSON valido, sem markdown, sem texto adicional:
 {{
   "bugs": [
     {{
@@ -152,12 +157,11 @@ def analisar(
             usage_total["cache_creation_tokens"] += getattr(usage, "cache_creation_input_tokens", 0)
             usage_total["cache_read_tokens"]     += getattr(usage, "cache_read_input_tokens", 0)
         except json.JSONDecodeError as e:
-            print(f"      ERRO: lote {i} retornou JSON invalido ({e})")
-            print(f"      Resposta raw: {raw[:500]!r}")
-            raise
+            print(f"      AVISO: lote {i} retornou JSON invalido ({e}) — pulando")
+            continue
         except Exception as e:
-            print(f"      ERRO: lote {i} falhou ({e})")
-            raise
+            print(f"      AVISO: lote {i} falhou ({e}) — pulando")
+            continue
 
     # Consolida resumo
     resumo = {
