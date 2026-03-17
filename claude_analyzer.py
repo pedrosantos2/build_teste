@@ -3,6 +3,7 @@
 # Maximo de LOTE_MAXIMO hits por chamada para nao estourar o output
 # =============================================================================
 
+from curses import raw
 import json
 from pathlib import Path
 from typing import List, Dict, Any
@@ -92,13 +93,26 @@ CANDIDATOS ({len(hits_lote)} itens):
         messages=[{"role": "user", "content": prompt}],
     )
 
-    raw = response.content[0].text.strip()
+    raw = response.content[0].text.strip() if response.content else ""
+
+    if not raw:
+        print(f"      ERRO: API retornou resposta vazia. Stop reason: {response.stop_reason}")
+        print(f"      Usage: input={response.usage.input_tokens} output={response.usage.output_tokens}")
+        raise json.JSONDecodeError("Resposta vazia da API", "", 0)
+
     if raw.startswith("```"):
         raw = raw.split("\n", 1)[1]
     if raw.endswith("```"):
         raw = raw.rsplit("```", 1)[0]
 
-    resultado = json.loads(raw.strip())
+    raw = raw.strip()
+    try:
+        resultado = json.loads(raw)
+    except json.JSONDecodeError as e:
+        print(f"      ERRO parse JSON: {e}")
+        print(f"      Raw (primeiros 500 chars): {raw[:500]!r}")
+        raise
+
     return resultado, response.usage
 
 
