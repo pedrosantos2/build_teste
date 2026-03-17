@@ -269,19 +269,27 @@ def imprimir_bugs_claude(bugs: List[Dict]) -> None:
 
 
 def converter_para_hits(resultados: List[Dict]) -> List[Dict]:
+    from config import COLUNAS_NATIVAS_VARCHAR2
+
     hits = []
     for r in resultados:
-        arquivo      = r.get("arquivo_original", r.get("arquivo", ""))
-        pre_existente = r.get("pre_existente", False)  # True = nao tocado, legado
+        arquivo       = r.get("arquivo_original", r.get("arquivo", ""))
+        pre_existente = r.get("pre_existente", False)
         for item in r.get("erros", []) + r.get("avisos", []):
+            mensagem = item.get("mensagem", "")
+
+            # Ignora hits que mencionam colunas nativas VARCHAR2 (ex: CREC_050)
+            if any(col in mensagem.lower() for col in COLUNAS_NATIVAS_VARCHAR2):
+                continue
+
             hits.append({
                 "arquivo":       arquivo,
                 "linha":         item.get("linha", 0),
                 "tipo":          item.get("bug", ""),
                 "sev_estimada":  "CRITICO" if item.get("tipo") == "ERRO" else "MEDIO",
                 "codigo":        "",
-                "contexto":      item.get("mensagem", ""),
-                "match":         item.get("mensagem", "")[:80],
+                "contexto":      mensagem,
+                "match":         mensagem[:80],
                 "pre_existente": pre_existente,
             })
     return hits
