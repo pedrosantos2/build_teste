@@ -278,8 +278,7 @@ def converter_para_hits(resultados: List[Dict]) -> List[Dict]:
                 "arquivo":       arquivo,
                 "linha":         item.get("linha", 0),
                 "tipo":          item.get("bug", ""),
-                "sev_estimada":  "ADVERTENCIA" if pre_existente else (
-                                 "CRITICO" if item.get("tipo") == "ERRO" else "MEDIO"),
+                "sev_estimada":  "CRITICO" if item.get("tipo") == "ERRO" else "MEDIO",
                 "codigo":        "",
                 "contexto":      item.get("mensagem", ""),
                 "match":         item.get("mensagem", "")[:80],
@@ -387,10 +386,11 @@ def main():
     # Modificados — severidade normal
     resultados = rodar_analise(modificados, dir_cnpj, repo_path, branch_cnpj)
 
-    # Nao tocados — marca como pre_existente para Claude classificar como ADVERTENCIA
+    # Nao tocados — pre_existente=True mas severidade CRITICO
+    # Todo arquivo do modulo com legado e critico, tocado ou nao
     resultados_leg = rodar_analise(nao_tocados, dir_cnpj, repo_path, branch_cnpj)
     for r in resultados_leg:
-        r["pre_existente"] = True  # sinaliza que nunca foi migrado
+        r["pre_existente"] = True
     resultados += resultados_leg
     total_erros  = sum(len(r.get("erros",  [])) for r in resultados)
     total_avisos = sum(len(r.get("avisos", [])) for r in resultados)
@@ -436,7 +436,7 @@ def main():
     )
     print(f"\n      JSON: {json_path}")
 
-    if not args.json_only and resultado_claude.get("bugs"):
+    if not args.json_only:
         html_path = saida / f"analise-cnpj-{modulo}.html"
         gerar_html(resultado_claude, str(html_path))
 

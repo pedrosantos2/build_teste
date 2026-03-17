@@ -52,7 +52,9 @@ def _chamar_api(client, modulo: str, hits_lote: list,
 
 Para cada item:
 1. Confirme se e bug real ou falso positivo usando o contexto
-2. Se pre_existente=true: severidade maxima e ADVERTENCIA
+2. Se pre_existente=true: arquivo nao foi tocado na migracao mas tem codigo legado
+   - Severidade e CRITICO — todo arquivo do modulo com legado deve ser migrado
+   - Usar ADVERTENCIA apenas para bugs estruturais sem relacao com CNPJ (ex: logica AND/OR errada)
 3. Sugira a correcao
 
 Responda SOMENTE com JSON valido, sem markdown:
