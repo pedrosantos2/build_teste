@@ -138,9 +138,12 @@ def analisar(
             usage_total["cache_creation_tokens"] += getattr(usage, "cache_creation_input_tokens", 0)
             usage_total["cache_read_tokens"]     += getattr(usage, "cache_read_input_tokens", 0)
         except json.JSONDecodeError as e:
-            print(f"      AVISO: lote {i} retornou JSON invalido ({e}) — pulando")
+            print(f"      ERRO: lote {i} retornou JSON invalido ({e})")
+            print(f"      Resposta raw: {raw[:500]!r}")
+            raise
         except Exception as e:
-            print(f"      AVISO: lote {i} falhou ({e}) — pulando")
+            print(f"      ERRO: lote {i} falhou ({e})")
+            raise
 
     # Consolida resumo
     resumo = {
