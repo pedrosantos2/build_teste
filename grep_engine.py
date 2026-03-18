@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 from config import (
-    PALAVRAS_CNPJ, TABELAS_DUALIDADE, TABELAS_NATIVAS_VARCHAR2,
+    PALAVRAS_CNPJ, TABELAS_DUALIDADE, TABELAS_NATIVAS_VARCHAR2, COLUNAS_NATIVAS_VARCHAR2,
     IGNORAR_PADROES, PASTAS_INCLUIR, PASTAS_EXCLUIR,
 )
 
@@ -434,17 +434,23 @@ def detectar_bug2(linhas_limpas):
     return erros
 
 def detectar_bug3(linhas_limpas):
-    """BUG 3 -- CNPJ.ZEROS.equals(String) em vez de CNPJ.ZEROS.r.equals()."""
+    """
+    BUG 3 -- CNPJ.ZEROS.equals() sem .r/.o/.d
+    Reporta como AVISO — Claude confirma se argumento e String (ERRO) ou CNPJ (CORRETO).
+    """
     erros = []
     pat_errado  = re.compile(r'CNPJ\.ZEROS\.equals\s*\(')
     pat_correto = re.compile(r'CNPJ\.ZEROS\.[rod]\.equals\s*\(')
+
     for i, linha in enumerate(linhas_limpas, 1):
         if _linha_e_duplicata_make(linha):
             continue
         if pat_errado.search(linha) and not pat_correto.search(linha):
-            _achar(erros, i, "BUG_3", "ERRO",
-                   "CNPJ.ZEROS.equals(String): compara objeto CNPJ com String -- use CNPJ.ZEROS.r.equals() ou CNPJ.ZEROS.o.equals()")
+            _achar(erros, i, "BUG_3", "AVISO",
+                   "CNPJ.ZEROS.equals() sem .r/.o/.d -- verificar tipo do argumento: "
+                   "se for String e ERRO, se for objeto CNPJ e correto")
     return erros
+
 
 def detectar_bug5(linhas_limpas):
     """BUG 5 -- Integer.parseInt() em campo _R/_O."""
@@ -795,6 +801,8 @@ def detectar_cnpj_legado_em_sql(texto_limpo):
             continue
 
         def _verificar(base, digit, col_display):
+            if col_display in COLUNAS_NATIVAS_VARCHAR2:
+                return
             if not any(kw in base for kw in PALAVRAS_CNPJ):
                 return
             if (base + '2') not in sql_block and (base + '_2') not in sql_block:
@@ -812,6 +820,8 @@ def detectar_cnpj_legado_em_sql(texto_limpo):
         def _verificar_mid(prefix, digit, suffix):
             """Digito no meio: base9suffix -> base_r_suffix."""
             col_display = prefix + digit + suffix
+            if col_display in COLUNAS_NATIVAS_VARCHAR2:
+                return
             if not any(kw in prefix or kw in suffix for kw in PALAVRAS_CNPJ):
                 return
             if (prefix + '2' + suffix) not in sql_block:
