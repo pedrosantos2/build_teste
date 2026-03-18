@@ -395,3 +395,20 @@ SELECT cgc9_tbm, cgc4_tbm, cgc2_tbm
 FROM tabela
 -- FALTA: cgc_tbm_r, cgc_tbm_o
 ```
+
+---
+
+## Regra de Severidade por Origem do Bug
+
+| Situação | Severidade |
+|----------|-----------|
+| `pre_existente=false` + qualquer bug CNPJ | **CRÍTICO** |
+| `pre_existente=true` + código legado CNPJ (`cgc_9`, `getInt` em `_r/_o`, etc) | **CRÍTICO** — arquivo não migrado |
+| `pre_existente=true` + bug estrutural sem relação com CNPJ | **ADVERTÊNCIA** |
+
+### Exemplos de bugs estruturais (ADVERTÊNCIA quando pre_existente=true)
+- Mismatch de placeholders SQL (`INSERT` com 5 `?` mas 7 parâmetros)
+- Lógica `AND` onde deveria ser `OR`
+- NullPointerException não relacionado a campos CNPJ
+- Encoding corrompido em comentários
+- Qualquer bug que já existia no WEB e não envolve campos CNPJ

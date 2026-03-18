@@ -58,9 +58,10 @@ IMPORTANTE:
 
 Para cada item:
 1. Confirme se e bug real ou falso positivo usando APENAS o contexto fornecido
-2. Se pre_existente=true: arquivo nao foi tocado na migracao mas tem codigo legado
-   - Severidade e CRITICO — todo arquivo do modulo com legado deve ser migrado
-   - Usar ADVERTENCIA apenas para bugs estruturais sem relacao com CNPJ (ex: logica AND/OR errada)
+2. Classificacao de severidade por pre_existente:
+   - pre_existente=false + qualquer bug CNPJ → CRITICO
+   - pre_existente=true + bug de codigo CNPJ legado (cgc_9, cgc_4, getInt em _r/_o, etc) → CRITICO (arquivo nao migrado)
+   - pre_existente=true + bug estrutural SEM relacao com CNPJ (mismatch de placeholders SQL, logica AND/OR errada, NPE generico, etc) → ADVERTENCIA
 3. Sugira a correcao
 
 Responda SOMENTE com JSON valido, sem markdown, sem texto adicional:
