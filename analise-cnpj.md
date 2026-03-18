@@ -510,3 +510,41 @@ cnpj = CNPJ.get(select.getString("nivel_estrutura_str"),
                 select.getString("grupo_estrutura_str"),
                 select.getInt("subgrupo_estrutura"));
 ```
+
+---
+
+## Regra initField em Arquivos .fj
+
+Campos CNPJ em formulários `.fj` que possuem a propriedade `INIT FIELD` devem conter `super.initField()` dentro dela. Sem isso o campo não inicializa corretamente em runtime.
+
+### Como identificar
+
+1. No branch WEB, campo CNPJ tinha `INIT FIELD { ... super.initField(); ... }`
+2. No branch CNPJ, o mesmo campo existe mas `super.initField()` foi removido ou não foi adicionado
+
+### Regra de validação
+
+Para cada `FIELD` cujo nome contém palavra de `PALAVRAS_CNPJ`:
+- Se tem bloco `INIT FIELD` sem `super.initField()` → **CRÍTICO**
+- Se não tem bloco `INIT FIELD` → **OK** (não é obrigatório ter)
+- Se tem `INIT FIELD` com `super.initField()` → **CORRETO**
+
+### Exemplo com erro
+```
+FIELD cgc_r : String {
+    INIT FIELD {
+        // falta super.initField() aqui
+        this.setMaxLength(9);
+    }
+}
+```
+
+### Exemplo correto
+```
+FIELD cgc_r : String {
+    INIT FIELD {
+        super.initField();
+        this.setMaxLength(9);
+    }
+}
+```
