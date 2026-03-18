@@ -412,3 +412,101 @@ FROM tabela
 - NullPointerException não relacionado a campos CNPJ
 - Encoding corrompido em comentários
 - Qualquer bug que já existia no WEB e não envolve campos CNPJ
+
+---
+
+## Regra BUG_3 — CNPJ.ZEROS.equals()
+
+O detector `BUG_3` verifica comparações incorretas com `CNPJ.ZEROS`. A regra é:
+
+| Código | Diagnóstico |
+|--------|-------------|
+| `CNPJ.ZEROS.equals(outroCNPJ)` | ✅ **CORRETO** — compara objeto CNPJ com CNPJ, funciona |
+| `CNPJ.ZEROS.equals(umaString)` | ❌ **ERRO** — compara CNPJ com String, sempre retorna false |
+| `cnpjVar.equals(CNPJ.ZEROS)` | ✅ **CORRETO** — comparação válida entre objetos CNPJ |
+| `cnpjVar.isZeros()` | ✅ **CORRETO** — método utilitário da classe CNPJ |
+
+### Como identificar o tipo do argumento
+
+Verificar o tipo da variável passada para `equals()`:
+- Se for `String` (ex: `getString(...)`, literal `"..."`, variável `String x`) → **ERRO**
+- Se for objeto `CNPJ` (ex: variável declarada como `CNPJ`, retorno de `CNPJ.get(...)`) → **CORRETO**
+- Se o tipo não puder ser determinado pelo contexto → **FALSO_POSITIVO**
+
+Reportar como `BUG_3 CRÍTICO` apenas quando for confirmado que o argumento é `String`.
+
+---
+
+## Tabelas com Regras Especiais de Migração
+
+### OPER_001 — Substituição sem Dualidade
+
+A `OPER_001` usa campos genéricos numerados. A migração **substitui** a coluna numérica pela alfanumérica — **sem duplicar**.
+
+| Antes (NUMBER) | Depois (VARCHAR2) |
+|----------------|-------------------|
+| `campo_01` | `campo_52` |
+| `campo_02` | `campo_53` |
+| `campo_03` (dígito) | `campo_03` (inalterado) |
+
+**Regra de validação:**
+- INSERT em `OPER_001` usando `campo_01`/`campo_02` sem `campo_52`/`campo_53` → **CRÍTICO**
+- INSERT em `OPER_001` usando `campo_52`/`campo_53` sem `campo_01`/`campo_02` → **CORRETO** (não precisa duplicar)
+- Não aplicar regra de dualidade padrão para esta tabela
+
+```java
+// CORRETO para OPER_001
+INSERT INTO oper_001 (campo_52, campo_53, campo_03) VALUES (?, ?, ?)
+new AppConnection(conn, sql, cnpj.r, cnpj.o, cnpj.d);
+
+// ERRO — ainda usa campos numericos
+INSERT INTO oper_001 (campo_01, campo_02, campo_03) VALUES (?, ?, ?)
+```
+
+---
+
+### OPER_TMP — Dualidade Obrigatória (Jasper/Crystal)
+
+A `OPER_TMP` é usada por relatórios Jasper e Crystal que **não serão migrados agora**. Por isso, **deve manter ambos os campos** (duplicidade obrigatória).
+
+| Antes (NUMBER) | Depois — manter ambos |
+|----------------|----------------------|
+| `int_01` | `str_02` (novo) + `int_01` (manter) |
+| `int_02` | `str_03` (novo) + `int_02` (manter) |
+| `int_03` (dígito) | `int_03` (inalterado) |
+
+Campos disponíveis para VARCHAR2: `str_02` a `str_15` — usar sempre o menor disponível.
+
+**Regra de validação:**
+- INSERT em `OPER_TMP` com `str_0x` mas sem `int_01`/`int_02` → **CRÍTICO** (quebra Jasper)
+- INSERT em `OPER_TMP` com `int_01`/`int_02` mas sem `str_0x` → **CRÍTICO** (migração incompleta)
+- INSERT com ambos os pares → **CORRETO**
+
+```java
+// CORRETO para OPER_TMP — duplica ambos os pares
+INSERT INTO oper_tmp (str_02, str_03, int_03, int_01, int_02) VALUES (?, ?, ?, ?, ?)
+new AppConnection(conn, sql, cnpj.r, cnpj.o, cnpj.d, cnpj.r, cnpj.o);
+```
+
+---
+
+### RCNB_060 — Campos Gêmeos com Sufixo _STR
+
+A `RCNB_060` é uma tabela temporária. O CNPJ alfanumérico usa os campos gêmeos com sufixo `_STR`.
+
+**Ordem de preferência para campos STRING:**
+1. Campo gêmeo: `nivel_estrutura_str`, `grupo_estrutura_str`, `subgrupo_estrutura_str`, `item_estrutura_str`
+2. Se ocupado: `campo_str_01` → `_02` → `_03` → `_04` → `_05`
+
+**Regra de validação:**
+- `getInt("nivel_estrutura")` onde deveria ser `getString("nivel_estrutura_str")` → **CRÍTICO**
+- `nivel_estrutura` sem `nivel_estrutura_str` no mesmo SELECT → **CRÍTICO**
+- `nivel_estrutura_str` presente → **CORRETO**
+
+```java
+// CORRETO para RCNB_060
+SELECT temp.nivel_estrutura_str, temp.grupo_estrutura_str, temp.subgrupo_estrutura
+cnpj = CNPJ.get(select.getString("nivel_estrutura_str"),
+                select.getString("grupo_estrutura_str"),
+                select.getInt("subgrupo_estrutura"));
+```

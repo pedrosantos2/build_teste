@@ -55,6 +55,8 @@ IMPORTANTE:
 - NAO tente executar comandos, acessar arquivos ou buscar informacoes externas
 - NAO use ferramentas — analise apenas o contexto ja fornecido em cada item
 - Se o contexto for insuficiente para confirmar, classifique como FALSO_POSITIVO
+- BUG_1 (dualidade INSERT/builder): so e CRITICO se a tabela estiver na lista TABELAS_DUALIDADE
+  Se o contexto nao mencionar explicitamente uma tabela de dualidade, classificar como FALSO_POSITIVO
 
 Para cada item:
 1. Confirme se e bug real ou falso positivo usando APENAS o contexto fornecido

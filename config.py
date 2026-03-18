@@ -19,7 +19,7 @@ TABELAS_DUALIDADE = {
     "CREC_060", "CREC_070", "CREC_101", "CREC_102", "CREC_150", "CREC_170", "CREC_180", "CREC_180_SIMULA",
     "CREC_200", "CREC_209", "CREC_250", "CREC_251", "CREC_252", "CREC_450", "CREC_563", "CREC_960", "CREC_962",
     "EFIC_012", "EIXO_003", "EMPR_073", "EMPR_090", "ESTQ_400", "ESTQ_405", "EXPT_040", "EXTC_020",
-    "FATU_036", "FATU_052", "FATU_070", "FATU_075", "FATU_076", "FATU_120", "FATU_125", "FATU_155", "FATU_157", "FATU_440",
+    "FATU_036", "FATU_052",  # FATU_050 removida — nao tem PK com CNPJ "FATU_070", "FATU_075", "FATU_076", "FATU_120", "FATU_125", "FATU_155", "FATU_157", "FATU_440",
     "FATX_070", "FATX_075", "FINA_030", "FINX_030", "FNDC_001", "FNDC_007",
     "HDOC_001", "HDOC_050", "HDOC_060", "HDOC_110", "HDOC_115", "HIST_VOL_01",
     "INTE_055", "INTE_067", "INTE_084", "INTE_305", "INTE_360", "INTE_385", "INTE_406",
@@ -35,7 +35,7 @@ TABELAS_DUALIDADE = {
     "OBRF_700", "OBRF_701", "OBRF_702", "OBRF_709", "OBRF_710", "OBRF_715",
     "OBRF_721", "OBRF_722", "OBRF_725", "OBRF_743", "OBRF_772", "OBRF_783", "OBRF_788",
     "OBRF_810", "OBRF_823", "OBRF_832", "OBRF_851", "OBRF_971",
-    "OPER_001", "OPER_284", "OPER_TMP",
+    "OPER_284",  # OPER_001 e OPER_TMP removidas — tem regras proprias de migracao
     "PCPC_012", "PCPC_340", "PCPC_341", "PCPC_343", "PCPF_080", "PCPF_081", "PCPT_016",
     "PEDI_005", "PEDI_010", "PEDI_011", "PEDI_012", "PEDI_013", "PEDI_014", "PEDI_015", "PEDI_028", "PEDI_035",
     "PEDI_055", "PEDI_058", "PEDI_065", "PEDI_067", "PEDI_068", "PEDI_074", "PEDI_084", "PEDI_103", "PEDI_112",
@@ -125,3 +125,22 @@ COLUNAS_NATIVAS_VARCHAR2 = {
     "cgc_sacado_r",
     "cgc_sacado_o",
 }
+
+# =============================================================================
+# Tabelas com regras especiais de migracao CNPJ
+# =============================================================================
+
+# OPER_001 — campos genericos, substitui coluna numerica pela alfanumerica (sem duplicar)
+# Antes: campo_01(NUMBER), campo_02(NUMBER) -> Depois: campo_52(VARCHAR2), campo_53(VARCHAR2)
+TABELAS_OPER001 = {"OPER_001"}
+
+# OPER_TMP — duplica campos pois e usada por Jasper/Crystal que nao serao migrados agora
+# Antes: int_01, int_02 -> Depois: str_02, str_03, int_01, int_02 (ambos presentes)
+TABELAS_OPERTMP = {"OPER_TMP"}
+
+# RCNB_060 — tabela temporaria, usa campos gemeos com sufixo _STR
+# nivel_estrutura -> nivel_estrutura_str
+# grupo_estrutura -> grupo_estrutura_str  
+# Se gemeo ocupado, usar nivel_estrutura_str > grupo_... > subgrupo_... > item_...
+# Se todos ocupados, usar campo_str_01..05
+TABELAS_RCNB060 = {"RCNB_060"}
