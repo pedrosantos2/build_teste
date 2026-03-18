@@ -629,6 +629,25 @@ def detectar_bug1_appconnection(linhas_limpas):
                     n_q = best[1]
 
         if n_q is not None and n_q > 0 and n_val_params != n_q:
+            # Ignora se algum parametro e varargs (Object... params, params, args, etc)
+            inner_lower = inner.lower()
+            if re.search(r'params|args|valores|Object\s*\.\.\.|\.\.\.', inner):
+                i += 1
+                continue
+
+            # Ignora se o SQL foi construido condicionalmente (if/switch antes do AppConnection)
+            # verificando se tem += no bloco da variavel SQL
+            if vname in sql_var_map:
+                bloco_sql = ' '.join(
+                    linhas_limpas[k] for k in range(
+                        max(0, sql_var_map[vname][0][0]),
+                        min(len(linhas_limpas), i)
+                    )
+                )
+                if '+=' in bloco_sql:
+                    i += 1
+                    continue
+
             _achar(erros, linha_inicio, "BUG_1", "ERRO",
                    f"AppConnection: SQL tem {n_q} placeholder(s) (?) mas recebe {n_val_params} variavel(is) de valor")
         i += 1
