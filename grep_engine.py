@@ -846,7 +846,20 @@ def detectar_cnpj_legado_em_sql(texto_limpo):
         for m in pat_leg_mid.finditer(sql_block):
             _verificar_mid(m.group(1), m.group(2), m.group(3))
 
-        i += 1
+        # Pula para depois do bloco SQL para nao re-reportar as mesmas colunas
+        # em linhas consecutivas do mesmo bloco
+        fim_bloco = i
+        for j in range(i, min(len(linhas), i + 80)):
+            fim_bloco = j
+            sql_ate_aqui = ' '.join(
+                f for k in range(i, j+1)
+                for f in pat_frag.findall(linhas[k])
+            ).upper()
+            # Bloco terminou quando nao tem mais concatenacao Java (+)
+            linha_j = linhas[j].rstrip()
+            if j > i and not linha_j.endswith('+') and not linha_j.endswith(','):
+                break
+        i = fim_bloco + 1
     return erros
 
 
@@ -1026,14 +1039,22 @@ def analisar_arquivo(caminho_arquivo):
     # 2. Fallback para o mapa de linha construido
     for item in erros + avisos:
         linha_limpa_idx = item.get("linha", 1) - 1
-        # Tenta pelo conteudo da linha limpa
         if 0 <= linha_limpa_idx < len(linhas_limpas):
             trecho = linhas_limpas[linha_limpa_idx].strip()
             if trecho and len(trecho) > 8 and trecho in indice_conteudo:
                 item["linha"] = indice_conteudo[trecho]
                 continue
-        # Fallback pelo mapa de posicao
         item["linha"] = _linha_real(item.get("linha", 1))
+
+    # Consolida erros duplicados: mesmo bug + mesma mensagem -> mantém só o primeiro
+    vistos = set()
+    erros_unicos = []
+    for item in erros:
+        chave = (item.get("bug", ""), item.get("mensagem", "")[:60])
+        if chave not in vistos:
+            vistos.add(chave)
+            erros_unicos.append(item)
+    erros = erros_unicos
 
     if categoria == "SEM_CNPJ" and (erros or avisos):
         categoria = "ERRO" if erros else "ATENCAO"
