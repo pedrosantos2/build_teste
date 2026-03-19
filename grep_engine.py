@@ -973,13 +973,52 @@ def analisar_arquivo(caminho_arquivo):
         return None
 
     nome_arquivo  = Path(caminho_arquivo).name
-    texto_limpo   = remover_comentarios(texto_original)
-    texto_limpo   = achatar_text_blocks(texto_limpo)
+
+    # Mapeia linha limpa -> linha original ANTES de achatar text blocks
+    # remover_comentarios preserva \n entao as linhas batem
+    # achatar_text_blocks colapsa text blocks em 1 linha — por isso guardamos
+    # o mapa de linha original antes de achatar
+    texto_sem_comentarios = remover_comentarios(texto_original)
+    linhas_originais      = texto_sem_comentarios.split('\n')
+
+    # Mapa: indice da linha no texto achatado -> numero da linha no original
+    texto_limpo   = achatar_text_blocks(texto_sem_comentarios)
     linhas_limpas = texto_limpo.split('\n')
+
+    # Reconstroi mapa de linha limpa -> linha original
+    # Compara caracter a caracter ate achar correspondencia
+    def _linha_original(idx_limpo: int) -> int:
+        """Retorna o numero de linha no arquivo original para uma linha do texto limpo."""
+        if idx_limpo < len(linhas_originais):
+            # Tenta match direto primeiro (caso sem text blocks)
+            if idx_limpo < len(linhas_limpas) and                linhas_limpas[idx_limpo].strip() == linhas_originais[idx_limpo].strip():
+                return idx_limpo + 1
+        # Fallback: busca a linha limpa no original
+        limpa = linhas_limpas[idx_limpo].strip() if idx_limpo < len(linhas_limpas) else ""
+        if limpa:
+            for j, orig in enumerate(linhas_originais):
+                if limpa == orig.strip():
+                    return j + 1
+        return idx_limpo + 1  # retorna o proprio indice se nao achar
 
     categoria = classificar(texto_limpo)
 
     erros, avisos = detectar_todos_bugs(linhas_limpas, texto_limpo, caminho_arquivo)
+
+    # Corrige numeros de linha usando o texto original
+    # Problema: achatar_text_blocks pode deslocar linhas
+    # Solucao: para cada erro, busca o trecho de codigo no texto original
+    linhas_orig = texto_original.split('\n')
+    for item in erros + avisos:
+        linha_limpa = item.get("linha", 1) - 1  # converte para 0-based
+        if 0 <= linha_limpa < len(linhas_limpas):
+            trecho = linhas_limpas[linha_limpa].strip()
+            if trecho:
+                # Busca esse trecho no texto original
+                for j, orig in enumerate(linhas_orig):
+                    if trecho and len(trecho) > 10 and trecho[:30] in orig:
+                        item["linha"] = j + 1
+                        break
 
     if categoria == "SEM_CNPJ" and (erros or avisos):
         categoria = "ERRO" if erros else "ATENCAO"
