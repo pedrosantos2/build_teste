@@ -65,6 +65,10 @@ Para cada item:
    - pre_existente=true + bug de codigo CNPJ legado (cgc_9, cgc_4, getInt em _r/_o, etc) → CRITICO (arquivo nao migrado)
    - pre_existente=true + bug estrutural SEM relacao com CNPJ (mismatch de placeholders SQL, logica AND/OR errada, NPE generico, etc) → ADVERTENCIA
 3. Sugira a correcao
+   - Para bugs de dualidade (BUG_1): diga apenas que precisa duplicar a coluna, sem sugerir Integer.parseInt ou conversao numerica
+   - A duplicacao e feita adicionando a coluna legada no INSERT com o mesmo valor da nova coluna — o sistema ja faz a conversao internamente
+   - Exemplo correto: "Adicionar 'tran_cli_forne9' e 'tran_cli_forne4' no INSERT junto com 'tran_cli_forne_r' e 'tran_cli_forne_o'"
+   - Nao sugerir Integer.parseInt, conversao de tipo ou casting em correcoes de dualidade
 
 Responda SOMENTE com JSON valido, sem markdown, sem texto adicional:
 {{

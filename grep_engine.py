@@ -3,7 +3,7 @@
 
 from config import (
     PALAVRAS_CNPJ, TABELAS_DUALIDADE, TABELAS_NATIVAS_VARCHAR2, COLUNAS_NATIVAS_VARCHAR2,
-    IGNORAR_PADROES, PASTAS_INCLUIR, PASTAS_EXCLUIR,
+    IGNORAR_PADROES, PASTAS_INCLUIR, PASTAS_EXCLUIR, PARES_PK_POR_TABELA,
 )
 
 """
@@ -267,52 +267,25 @@ def detectar_bug1(texto_limpo):
                         _achar(erros, linha_inicio, "BUG_1", "ERRO",
                                f"INSERT INTO {tabela}: {len(cols)} coluna(s) mas {n_vals} valor(es) no VALUES ({n_q} placeholder(s) ?)")
 
-                    # b) pares de dualidade _r/_9 e _o/_4
-                    for col in cols:
-                        if not _e_coluna_cnpj(col):
-                            continue
-                        if col.endswith('_r'):
-                            base = col[:-2]
-                            if not _e_trio_cnpj(base, cols_set):
-                                continue
-                            if (base + '9') not in cols_set and (base + '_9') not in cols_set:
-                                _achar(erros, linha_inicio, "BUG_1", "ERRO",
-                                       f"INSERT INTO {tabela}: falta duplicar '{col}' -> adicionar '{base}9' (NUMBER legado) -- INSERT deve gravar em ambas as colunas")
-                        elif col.endswith('_o'):
-                            base = col[:-2]
-                            if not _e_trio_cnpj(base, cols_set):
-                                continue
-                            if (base + '4') not in cols_set and (base + '_4') not in cols_set:
-                                _achar(erros, linha_inicio, "BUG_1", "ERRO",
-                                       f"INSERT INTO {tabela}: falta duplicar '{col}' -> adicionar '{base}4' (NUMBER legado) -- INSERT deve gravar em ambas as colunas")
-                        elif col.endswith('_9'):
-                            base = col[:-2]
-                            if not _e_trio_cnpj(base, cols_set):
-                                continue
-                            if (base + '_r') not in cols_set:
-                                _achar(erros, linha_inicio, "BUG_1", "AVISO",
-                                       f"INSERT INTO {tabela}: falta duplicar '{col}' -> adicionar '{base}_r' (VARCHAR2 novo) -- INSERT deve gravar em ambas as colunas")
-                        elif col.endswith('_4'):
-                            base = col[:-2]
-                            if not _e_trio_cnpj(base, cols_set):
-                                continue
-                            if (base + '_o') not in cols_set:
-                                _achar(erros, linha_inicio, "BUG_1", "AVISO",
-                                       f"INSERT INTO {tabela}: falta duplicar '{col}' -> adicionar '{base}_o' (VARCHAR2 novo) -- INSERT deve gravar em ambas as colunas")
-                        elif col.endswith('9') and len(col) >= 2 and col[-2] != '_':
-                            base = col[:-1]
-                            if not _e_trio_cnpj(base, cols_set):
-                                continue
-                            if (base + '_r') not in cols_set:
-                                _achar(erros, linha_inicio, "BUG_1", "AVISO",
-                                       f"INSERT INTO {tabela}: falta duplicar '{col}' -> adicionar '{base}_r' (VARCHAR2 novo) -- INSERT deve gravar em ambas as colunas")
-                        elif col.endswith('4') and len(col) >= 2 and col[-2] != '_':
-                            base = col[:-1]
-                            if not _e_trio_cnpj(base, cols_set):
-                                continue
-                            if (base + '_o') not in cols_set:
-                                _achar(erros, linha_inicio, "BUG_1", "AVISO",
-                                       f"INSERT INTO {tabela}: falta duplicar '{col}' -> adicionar '{base}_o' (VARCHAR2 novo) -- INSERT deve gravar em ambas as colunas")
+                    # b) pares de dualidade usando PARES_PK_POR_TABELA do CSV
+                    # So verifica colunas que sao PK real da tabela
+                    pares_pk = PARES_PK_POR_TABELA.get(tabela, [])
+                    for col9, col4, col_r, col_o in pares_pk:
+                        tem_nova = col_r in cols_set or col_o in cols_set
+                        tem_leg  = col9  in cols_set or col4  in cols_set
+
+                        if not tem_nova and not tem_leg:
+                            continue  # par nao aparece nesse INSERT
+
+                        if tem_nova and tem_leg:
+                            continue  # dualidade correta
+
+                        if tem_nova and not tem_leg:
+                            _achar(erros, linha_inicio, "BUG_1", "ERRO",
+                                   f"INSERT INTO {tabela}: tem '{col_r}'/'{col_o}' mas falta duplicar '{col9}'/'{col4}' (NUMBER legado)")
+                        else:
+                            _achar(erros, linha_inicio, "BUG_1", "AVISO",
+                                   f"INSERT INTO {tabela}: tem '{col9}'/'{col4}' mas falta adicionar '{col_r}'/'{col_o}' (VARCHAR2 novo)")
         i += 1
     return erros
 
