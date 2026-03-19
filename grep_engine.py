@@ -952,46 +952,88 @@ def analisar_arquivo(caminho_arquivo):
     # achatar_text_blocks colapsa text blocks em 1 linha — por isso guardamos
     # o mapa de linha original antes de achatar
     texto_sem_comentarios = remover_comentarios(texto_original)
-    linhas_originais      = texto_sem_comentarios.split('\n')
 
-    # Mapa: indice da linha no texto achatado -> numero da linha no original
-    texto_limpo   = achatar_text_blocks(texto_sem_comentarios)
-    linhas_limpas = texto_limpo.split('\n')
+    # Constroi mapa: indice_linha_achatada -> numero_linha_original
+    # O achatar_text_blocks colapsa text blocks (""") em 1 linha
+    # Precisamos saber qual linha do original corresponde a cada linha achatada
+    linhas_antes_achatar = texto_sem_comentarios.split('\n')
+    texto_limpo          = achatar_text_blocks(texto_sem_comentarios)
+    linhas_limpas        = texto_limpo.split('\n')
 
-    # Reconstroi mapa de linha limpa -> linha original
-    # Compara caracter a caracter ate achar correspondencia
-    def _linha_original(idx_limpo: int) -> int:
-        """Retorna o numero de linha no arquivo original para uma linha do texto limpo."""
-        if idx_limpo < len(linhas_originais):
-            # Tenta match direto primeiro (caso sem text blocks)
-            if idx_limpo < len(linhas_limpas) and                linhas_limpas[idx_limpo].strip() == linhas_originais[idx_limpo].strip():
-                return idx_limpo + 1
-        # Fallback: busca a linha limpa no original
-        limpa = linhas_limpas[idx_limpo].strip() if idx_limpo < len(linhas_limpas) else ""
-        if limpa:
-            for j, orig in enumerate(linhas_originais):
-                if limpa == orig.strip():
-                    return j + 1
-        return idx_limpo + 1  # retorna o proprio indice se nao achar
+    # Monta o mapa: indice_limpo (0-based) -> numero_linha_original (1-based)
+    # Estrategia: percorre o original e o achatado em paralelo
+    # Quando uma linha do achatado bate com o original, avanca os dois
+    # Quando nao bate (text block colapsado), avanca so o original
+    mapa_linha = {}
+    i_orig = 0
+    for i_limpo, linha_limpa in enumerate(linhas_limpas):
+        limpa_strip = linha_limpa.strip()
+
+        # Avanca no original procurando match
+        encontrou = False
+        tentativas = 0
+        while i_orig < len(linhas_antes_achatar) and tentativas < 200:
+            orig_strip = linhas_antes_achatar[i_orig].strip()
+
+            if orig_strip == limpa_strip:
+                # Match exato — avanca os dois
+                mapa_linha[i_limpo] = i_orig + 1
+                i_orig += 1
+                encontrou = True
+                break
+
+            if not limpa_strip:
+                # Linha limpa vazia — mapeia para posicao atual e avanca
+                mapa_linha[i_limpo] = i_orig + 1
+                encontrou = True
+                break
+
+            if not orig_strip:
+                # Linha original vazia — avanca so o original (comentario removido)
+                i_orig += 1
+                tentativas += 1
+                continue
+
+            # Linha original diferente — provavelmente parte de text block colapsado
+            # ou comentario. Registra a posicao atual e avanca o original
+            if i_limpo not in mapa_linha:
+                mapa_linha[i_limpo] = i_orig + 1
+            i_orig += 1
+            encontrou = True
+            break
+
+        if not encontrou or i_limpo not in mapa_linha:
+            mapa_linha[i_limpo] = i_orig + 1
+
+    def _linha_real(idx_limpo_1based: int) -> int:
+        """Converte numero de linha do texto achatado para numero no arquivo original."""
+        return mapa_linha.get(idx_limpo_1based - 1, idx_limpo_1based)
+
+    # Indice reverso: trecho de codigo -> linha no original
+    # Usado para corrigir bugs detectados por conteudo de linha
+    indice_conteudo = {}
+    for j, orig in enumerate(linhas_antes_achatar):
+        s = orig.strip()
+        if s and len(s) > 8:
+            indice_conteudo[s] = j + 1
 
     categoria = classificar(texto_limpo)
 
     erros, avisos = detectar_todos_bugs(linhas_limpas, texto_limpo, caminho_arquivo)
 
-    # Corrige numeros de linha usando o texto original
-    # Problema: achatar_text_blocks pode deslocar linhas
-    # Solucao: para cada erro, busca o trecho de codigo no texto original
-    linhas_orig = texto_original.split('\n')
+    # Corrige numeros de linha:
+    # 1. Tenta achar o trecho exato no original (mais preciso)
+    # 2. Fallback para o mapa de linha construido
     for item in erros + avisos:
-        linha_limpa = item.get("linha", 1) - 1  # converte para 0-based
-        if 0 <= linha_limpa < len(linhas_limpas):
-            trecho = linhas_limpas[linha_limpa].strip()
-            if trecho:
-                # Busca esse trecho no texto original
-                for j, orig in enumerate(linhas_orig):
-                    if trecho and len(trecho) > 10 and trecho[:30] in orig:
-                        item["linha"] = j + 1
-                        break
+        linha_limpa_idx = item.get("linha", 1) - 1
+        # Tenta pelo conteudo da linha limpa
+        if 0 <= linha_limpa_idx < len(linhas_limpas):
+            trecho = linhas_limpas[linha_limpa_idx].strip()
+            if trecho and len(trecho) > 8 and trecho in indice_conteudo:
+                item["linha"] = indice_conteudo[trecho]
+                continue
+        # Fallback pelo mapa de posicao
+        item["linha"] = _linha_real(item.get("linha", 1))
 
     if categoria == "SEM_CNPJ" and (erros or avisos):
         categoria = "ERRO" if erros else "ATENCAO"
