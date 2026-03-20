@@ -181,95 +181,6 @@ def analisar_arquivo_do_disco(path_real: str, path_relativo: str) -> Optional[Di
     return r
 
 
-def _web_tem_super_init_field(dir_web: Optional[Path], repo_path: Optional[str],
-                              branch_main: Optional[str], relativo: str,
-                              nome_field: str) -> bool:
-    """
-    Verifica se o arquivo WEB tem super.initField() dentro do FIELD especificado.
-    Se WEB nao tem, entao CNPJ nao removeu — nao e erro novo.
-    """
-    import re as _re
-
-    conteudo_web = None
-
-    if dir_web:
-        path_web = dir_web / relativo
-        if path_web.exists():
-            try:
-                conteudo_web = path_web.read_text(encoding="windows-1252", errors="replace")
-            except Exception:
-                return False
-    elif repo_path and branch_main:
-        result = subprocess.run(
-            ["git", "show", f"{branch_main}:{relativo}"],
-            cwd=repo_path, capture_output=True
-        )
-        if result.returncode == 0:
-            conteudo_web = result.stdout.decode("windows-1252", errors="replace")
-
-    if not conteudo_web:
-        return False  # sem WEB para comparar — nao reportar
-
-    # Procura o FIELD no conteudo WEB e verifica se tinha super.initField()
-    pat_field = _re.compile(
-        r'\bFIELD\s+' + _re.escape(nome_field) + r'\b', _re.IGNORECASE
-    )
-    pat_super = _re.compile(r'super\.initField\s*\(\s*\)', _re.IGNORECASE)
-
-    linhas = conteudo_web.split('\n')
-    for i, linha in enumerate(linhas):
-        if pat_field.search(linha):
-            # Coleta o bloco do FIELD
-            depth = 0
-            bloco = []
-            for j in range(i, min(len(linhas), i + 100)):
-                bloco.append(linhas[j])
-                depth += linhas[j].count('{') - linhas[j].count('}')
-                if j > i and depth <= 0:
-                    break
-            bloco_txt = '\n'.join(bloco)
-            return bool(pat_super.search(bloco_txt))
-
-    return False  # FIELD nao encontrado no WEB — nao reportar
-
-
-def _filtrar_init_field_com_web(resultados: List[Dict],
-                                dir_web: Optional[Path],
-                                repo_path: Optional[str],
-                                branch_main: Optional[str]) -> None:
-    """
-    Remove erros INIT_FIELD_FJ que nao sao regressao:
-    so mantém se o WEB tinha super.initField() e o CNPJ removeu.
-    """
-    import re as _re
-
-    for r in resultados:
-        relativo = r.get("arquivo_original", "")
-        if not relativo.endswith(".fj"):
-            continue
-
-        erros_filtrados = []
-        for e in r.get("erros", []):
-            if e.get("bug") != "INIT_FIELD_FJ":
-                erros_filtrados.append(e)
-                continue
-
-            # Extrai nome do field da mensagem
-            m = _re.search(r"Campo CNPJ '(\w+)'", e.get("mensagem", ""))
-            if not m:
-                erros_filtrados.append(e)
-                continue
-
-            nome_field = m.group(1)
-
-            # So reporta se WEB tinha super.initField() e CNPJ removeu
-            if _web_tem_super_init_field(dir_web, repo_path, branch_main, relativo, nome_field):
-                erros_filtrados.append(e)
-            # senão: WEB tambem nao tinha — nao e regressao, descarta
-
-        r["erros"] = erros_filtrados
-
-
 def _coletar_telas_hdoc(arquivos: List[str], dir_cnpj: Optional[Path],
                         repo_path: Optional[str], branch_cnpj: Optional[str]) -> set:
     """
@@ -557,16 +468,6 @@ def main():
     for r in resultados_leg:
         r["pre_existente"] = True
     resultados += resultados_leg
-
-    # Filtra INIT_FIELD_FJ: so reporta se WEB tinha super.initField() e CNPJ removeu
-    branch_main = None
-    if args.modo_git:
-        from grep_engine import _resolver_branch_principal
-        try:
-            branch_main = _resolver_branch_principal(repo_path)
-        except RuntimeError:
-            pass
-    _filtrar_init_field_com_web(resultados, dir_web, repo_path, branch_main)
 
     # Rebaixa erros para AVISO em telas com target_table=HDOC_001
     todos_arquivos = modificados + nao_tocados

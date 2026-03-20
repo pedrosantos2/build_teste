@@ -904,19 +904,19 @@ def detectar_cnpj_legado_em_sql(texto_limpo):
 def detectar_init_field_fj(linhas_limpas, nome_arquivo=""):
     """
     Verifica campos CNPJ em arquivos .fj que tem INIT FIELD sem super.initField().
-    Compara com o WEB: se o WEB tinha super.initField() e o CNPJ nao tem, e CRITICO.
+    So analisa FIELDs que sao CNPJ — por nome ou por widget que extendem.
     """
     if not nome_arquivo.endswith(".fj"):
         return []
 
     erros = []
-    palavras = PALAVRAS_CNPJ
 
-    pat_field  = re.compile(r'\bFIELD\s+(\w+)\s*', re.IGNORECASE)
+    pat_field  = re.compile(r'\bFIELD\s+(\w+)\s+extends\s+([\w.]+)', re.IGNORECASE)
     pat_init   = re.compile(r'\bINIT\s+FIELD\b', re.IGNORECASE)
     pat_super  = re.compile(r'super\.initField\s*\(\s*\)', re.IGNORECASE)
-    pat_abre   = re.compile(r'\{')
-    pat_fecha  = re.compile(r'\}')
+    pat_widget_cnpj = re.compile(
+        r'systextil\.widgets\.cliente\.[ROD]$', re.IGNORECASE
+    )
 
     i = 0
     while i < len(linhas_limpas):
@@ -926,15 +926,17 @@ def detectar_init_field_fj(linhas_limpas, nome_arquivo=""):
         m_field = pat_field.search(linha)
         if m_field:
             nome_field = m_field.group(1).lower()
+            widget     = m_field.group(2)
 
-            # Verifica se o nome do campo contem palavra CNPJ
-            if any(p in nome_field for p in palavras):
+            # Verifica se e campo CNPJ: por nome ou por widget
+            e_cnpj = _e_coluna_cnpj(nome_field) or bool(pat_widget_cnpj.search(widget))
 
+            if e_cnpj:
                 # Coleta o bloco do FIELD (ate fechar as chaves)
                 bloco = []
                 depth = 0
                 j = i
-                while j < min(i + 60, len(linhas_limpas)):
+                while j < min(i + 100, len(linhas_limpas)):
                     bloco.append(linhas_limpas[j])
                     depth += linhas_limpas[j].count('{') - linhas_limpas[j].count('}')
                     if j > i and depth <= 0:
@@ -949,7 +951,7 @@ def detectar_init_field_fj(linhas_limpas, nome_arquivo=""):
                     if not pat_super.search(bloco_txt):
                         _achar(erros, i + 1, "INIT_FIELD_FJ", "ERRO",
                                f"Campo CNPJ '{nome_field}' tem INIT FIELD mas falta super.initField() -- "
-                               f"sem isso o campo nao inicializa corretamente em runtime")
+                               f"adicionar super.initField() dentro do INIT FIELD")
                 i = j
         i += 1
 
