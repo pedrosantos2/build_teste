@@ -4,6 +4,7 @@
 # =============================================================================
 
 import json
+import re
 from pathlib import Path
 from typing import List, Dict, Any
 
@@ -110,20 +111,25 @@ CANDIDATOS ({len(hits_lote)} itens):
                 "cache_control": {"type": "ephemeral"},
             },
         ],
-        messages=[{"role": "user", "content": prompt}],
+        messages=[
+            {"role": "user", "content": prompt},
+            {"role": "assistant", "content": '{"bugs":[\n'},
+        ],
     )
 
-    raw = response.content[0].text.strip() if response.content else ""
+    raw_body = response.content[0].text.strip() if response.content else ""
 
-    if not raw:
+    if not raw_body:
         print(f"      ERRO: API retornou resposta vazia. Stop reason: {response.stop_reason}")
         print(f"      Usage: input={response.usage.input_tokens} output={response.usage.output_tokens}")
         raise json.JSONDecodeError("Resposta vazia da API", "", 0)
 
-    if raw.startswith("```"):
-        raw = raw.split("\n", 1)[1]
-    if raw.endswith("```"):
-        raw = raw.rsplit("```", 1)[0]
+    # Reconstroi o JSON completo: prefill + resposta do modelo
+    raw = '{"bugs":[\n' + raw_body
+
+    # Remove markdown wrapper se o modelo adicionou
+    if '```' in raw:
+        raw = re.sub(r'```(?:json)?\s*', '', raw)
 
     raw = raw.strip()
     try:
