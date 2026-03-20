@@ -113,7 +113,7 @@ CANDIDATOS ({len(hits_lote)} itens):
         ],
         messages=[
             {"role": "user", "content": prompt},
-            {"role": "assistant", "content": '{"bugs":[\n'},
+            {"role": "assistant", "content": '{"bugs":['},
         ],
     )
 
@@ -125,7 +125,7 @@ CANDIDATOS ({len(hits_lote)} itens):
         raise json.JSONDecodeError("Resposta vazia da API", "", 0)
 
     # Reconstroi o JSON completo: prefill + resposta do modelo
-    raw = '{"bugs":[\n' + raw_body
+    raw = '{"bugs":[' + raw_body
 
     # Remove markdown wrapper se o modelo adicionou
     if '```' in raw:
