@@ -1149,7 +1149,7 @@ def detectar_campo_numerico_cnpj_fj(linhas_limpas, nome_arquivo=""):
 
         if e_cnpj and nome_field not in already_reported:
             already_reported.add(nome_field)
-            _achar(erros, linha_inicio, "CAMPO_NUMERICO_CNPJ", "ERRO",
+            _achar(erros, linha_inicio, "CAMPO_NUMERICO_CNPJ", "AVISO",
                    f"FIELD '{nome_field}' e numerico mas esta sendo usado para CNPJ alfanumerico "
                    f"-- alterar para campo descricao (String) pois CNPJ agora e VARCHAR2")
 

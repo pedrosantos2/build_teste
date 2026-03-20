@@ -60,7 +60,7 @@ IMPORTANTE:
   Se o contexto nao mencionar explicitamente uma tabela de dualidade, classificar como FALSO_POSITIVO
 - BUG_LEGADO em arquivos .fj: SQL em blocos EXEC SQL usando colunas legadas (cgc_9, cgc_4) sem
   versao nova (cgc_r, cgc_o) e CRITICO — correcao e substituir a coluna legada pela nova
-- CAMPO_NUMERICO_CNPJ: FIELD campo_numerico* usado para CNPJ em .fj e CRITICO —
+- CAMPO_NUMERICO_CNPJ: FIELD campo_numerico* usado para CNPJ em .fj e ADVERTENCIA —
   correcao e alterar para campo descricao (String) pois CNPJ agora e VARCHAR2.
   Nem todo campo_numerico e CNPJ — so os que extendem widgets CNPJ, recebem CNPJ.ZEROS
   ou tem SQL com colunas CNPJ. campo_numerico* sem relacao CNPJ e FALSO_POSITIVO
