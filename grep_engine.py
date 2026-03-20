@@ -1568,8 +1568,21 @@ def _resolver_branch_principal(repo_path: str) -> str:
 def _resolver_branch_cnpj(repo_path: str) -> str:
     """
     Detecta automaticamente qual ref usar para o branch CNPJ.
-    Tenta em ordem: origin/CNPJ, CNPJ, qualquer branch com 'cnpj' no nome.
+    Tenta em ordem:
+      1. Branch atual se contem 'cnpj' no nome (Jenkins ja fez checkout)
+      2. origin/CNPJ, CNPJ
+      3. Qualquer branch com 'cnpj' no nome
+      4. HEAD (fallback — Jenkins fez checkout mas nao nomeou o branch)
     """
+    # Verifica se o branch atual ja e o CNPJ
+    result_head = _subprocess.run(
+        ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+        cwd=repo_path, capture_output=True, text=True
+    )
+    branch_atual = result_head.stdout.strip() if result_head.returncode == 0 else ""
+    if branch_atual and "cnpj" in branch_atual.lower():
+        return branch_atual
+
     candidatos = ["origin/CNPJ", "CNPJ"]
 
     result = _subprocess.run(
@@ -1584,6 +1597,10 @@ def _resolver_branch_cnpj(repo_path: str) -> str:
     for candidato in candidatos:
         if _branch_existe(repo_path, candidato):
             return candidato
+
+    # Fallback: HEAD (Jenkins pode ter checkout em detached HEAD)
+    if branch_atual == "HEAD" or branch_atual:
+        return "HEAD"
 
     raise RuntimeError(
         f"Branch CNPJ nao encontrado em {repo_path}.\n"

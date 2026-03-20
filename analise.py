@@ -198,14 +198,19 @@ def _coletar_telas_hdoc(arquivos: List[str], dir_cnpj: Optional[Path],
             continue
 
         conteudo = None
-        if dir_cnpj:
-            path_real = dir_cnpj / relativo
-            if path_real.exists():
-                try:
-                    conteudo = path_real.read_text(encoding="windows-1252", errors="replace")
-                except Exception:
-                    pass
-        elif repo_path and branch_cnpj:
+        # Tenta ler do disco primeiro (dir_cnpj ou repo_path)
+        for base_dir in [dir_cnpj, Path(repo_path) if repo_path else None]:
+            if base_dir:
+                path_real = base_dir / relativo
+                if path_real.exists():
+                    try:
+                        conteudo = path_real.read_text(encoding="windows-1252", errors="replace")
+                    except Exception:
+                        pass
+                    break
+
+        # Fallback: git show
+        if not conteudo and repo_path and branch_cnpj:
             result = subprocess.run(
                 ["git", "show", f"{branch_cnpj}:{relativo}"],
                 cwd=repo_path, capture_output=True
@@ -287,9 +292,10 @@ def _rebaixar_bugs_claude_hdoc(resultado_claude: Dict, bases_hdoc: set) -> None:
 def rodar_analise(arquivos: List[str], dir_cnpj: Optional[Path],
                   repo_path: Optional[str], branch_cnpj: Optional[str]) -> List[Dict]:
     """
-    Para cada arquivo modificado:
-      - Modo diretorio: le direto do dir_cnpj
-      - Modo git: extrai via git show para temp
+    Para cada arquivo, tenta ler na ordem:
+      1. dir_cnpj (diretorio no disco — modo Jenkins ou workspace git)
+      2. repo_path (arquivo no disco relativo ao repo — modo git com checkout)
+      3. git show (fallback — extrai do branch para temp)
     """
     resultados = []
 
@@ -298,15 +304,23 @@ def rodar_analise(arquivos: List[str], dir_cnpj: Optional[Path],
         if sufixo not in EXTENSOES_ANALISAR:
             continue
 
-        if dir_cnpj:
-            # Modo Jenkins — arquivo ja esta no disco
-            path_real = str(dir_cnpj / relativo)
-            if not Path(path_real).exists():
-                continue
-            r = analisar_arquivo_do_disco(path_real, relativo)
+        r = None
 
-        else:
-            # Modo git — extrai para temp
+        # Tenta ler do disco: dir_cnpj ou repo_path (workspace do Jenkins)
+        path_real = None
+        if dir_cnpj:
+            candidato = dir_cnpj / relativo
+            if candidato.exists():
+                path_real = str(candidato)
+        if not path_real and repo_path:
+            candidato = Path(repo_path) / relativo
+            if candidato.exists():
+                path_real = str(candidato)
+
+        if path_real:
+            r = analisar_arquivo_do_disco(path_real, relativo)
+        elif repo_path and branch_cnpj:
+            # Fallback: extrai via git show para temp
             result = subprocess.run(
                 ["git", "show", f"{branch_cnpj}:{relativo}"],
                 cwd=repo_path, capture_output=True
