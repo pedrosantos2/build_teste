@@ -111,25 +111,25 @@ CANDIDATOS ({len(hits_lote)} itens):
                 "cache_control": {"type": "ephemeral"},
             },
         ],
-        messages=[
-            {"role": "user", "content": prompt},
-            {"role": "assistant", "content": '{"bugs":['},
-        ],
+        messages=[{"role": "user", "content": prompt}],
     )
 
-    raw_body = response.content[0].text.strip() if response.content else ""
+    raw = response.content[0].text.strip() if response.content else ""
 
-    if not raw_body:
+    if not raw:
         print(f"      ERRO: API retornou resposta vazia. Stop reason: {response.stop_reason}")
         print(f"      Usage: input={response.usage.input_tokens} output={response.usage.output_tokens}")
         raise json.JSONDecodeError("Resposta vazia da API", "", 0)
 
-    # Reconstroi o JSON completo: prefill + resposta do modelo
-    raw = '{"bugs":[' + raw_body
-
     # Remove markdown wrapper se o modelo adicionou
     if '```' in raw:
         raw = re.sub(r'```(?:json)?\s*', '', raw)
+
+    # Extrai o JSON do texto — pega do primeiro { ao ultimo }
+    inicio = raw.find('{')
+    fim = raw.rfind('}')
+    if inicio != -1 and fim != -1 and fim > inicio:
+        raw = raw[inicio:fim + 1]
 
     raw = raw.strip()
     try:
