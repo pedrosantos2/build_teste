@@ -548,3 +548,123 @@ FIELD cgc_r : String {
     }
 }
 ```
+
+---
+
+## BUG_LEGADO em Blocos EXEC SQL de Arquivos .fj
+
+Em arquivos `.fj`, SQL é escrito diretamente no código dentro de blocos `EXEC SQL ... INTO`, **sem aspas**. O detector padrão de SQL legado só procura em strings Java (`"..."`), então este é um detector específico para `.fj`.
+
+### O que detecta
+
+Blocos `EXEC SQL` que usam colunas CNPJ legadas (`cgc_9`, `cgc_4`, `fornecedor9`, etc.) sem a versão nova (`cgc_r`, `cgc_o`, `fornecedor_r`, etc.).
+
+### Regra de validação
+
+| Situação | Diagnóstico |
+|----------|-------------|
+| `EXEC SQL ... cgc_9 ... cgc_r ...` | ✅ **CORRETO** — ambas presentes |
+| `EXEC SQL ... cgc_r ... cgc_o ...` (sem legado) | ✅ **CORRETO** — SELECT/WHERE pode usar só a nova |
+| `EXEC SQL ... cgc_9 ... cgc_4 ...` (sem _r/_o) | ❌ **ERRO** — SQL ainda usa colunas legadas |
+
+### Exemplo com erro (arquivo .fj)
+```
+FIELD campo_numerico03 extends systextil.widgets.cliente.D
+{
+    WHEN VALUE CHANGES
+    {
+        EXEC SQL
+        select pedi_010.nome_cliente from pedi_010
+        where pedi_010.cgc_9 = :campo_numerico01
+        and pedi_010.cgc_4 = :campo_numerico02
+        and pedi_010.cgc_2 = :campo_numerico03
+        INTO nome_cliente ;
+    }
+}
+```
+**Erro**: `cgc_9` e `cgc_4` devem ser `cgc_r` e `cgc_o`.
+
+### Exemplo correto (arquivo .fj)
+```
+FIELD campo_numerico01 extends systextil.widgets.cliente.R
+{
+    WHEN VALUE CHANGES
+    {
+        EXEC SQL
+        select pedi_010.nome_cliente from pedi_010
+        where pedi_010.cgc_r = :campo_numerico01
+        and pedi_010.cgc_o = :campo_numerico02
+        and pedi_010.cgc_2 = :campo_numerico03
+        INTO nome_cliente ;
+    }
+}
+```
+
+---
+
+## CAMPO_NUMERICO_CNPJ — Campos Numéricos Usados para CNPJ em .fj
+
+Em formulários `.fj`, campos CNPJ eram historicamente armazenados em `campo_numerico*` (tipo numérico). Com a migração para CNPJ alfanumérico (VARCHAR2/String), esses campos precisam ser alterados para `descricao*` (tipo String).
+
+### Como identificar
+
+Um `FIELD campo_numerico*` está sendo usado para CNPJ se atender a **qualquer** destes critérios:
+
+1. **Extends widget CNPJ**: `systextil.widgets.cliente.R`, `.O` ou `.D`
+2. **SQL no bloco referencia coluna CNPJ** com bind variable `:campo_numerico*` (ex: `cgc_r = :campo_numerico01`)
+3. **Atribuição global**: `formId.campo_numerico01 = CNPJ.ZEROS.r`
+
+### Regra de validação
+
+| Situação | Diagnóstico |
+|----------|-------------|
+| `FIELD campo_numerico01 extends systextil.widgets.cliente.R` | ❌ **ERRO** — alterar para `descricao*` |
+| `FIELD campo_numerico01 extends objetos.intFieldBase` (sem referência CNPJ) | ✅ **OK** — campo numérico real |
+| `formId.campo_numerico01 = CNPJ.ZEROS.r` | ❌ **ERRO** — campo recebe CNPJ mas é numérico |
+
+### Correção
+
+Trocar `campo_numerico*` por campo de tipo String (`descricao*` ou equivalente) em:
+- Declaração do FIELD
+- Todas as referências no formulário (`formId.campo_numerico01` → `formId.descricao01`)
+- Blocos `EXEC SQL` que usam `:campo_numerico*` como bind variable para colunas CNPJ
+
+### Exemplo com erro
+```
+// ERRO: campo_numerico01 e numerico mas recebe CNPJ (String)
+formId.campo_numerico01 = CNPJ.ZEROS.r;
+formId.campo_numerico02 = CNPJ.ZEROS.o;
+
+FIELD campo_numerico01 extends systextil.widgets.cliente.R
+{
+    WHEN VALUE CHANGES
+    {
+        EXEC SQL
+        select nome_cliente from pedi_010
+        where pedi_010.cgc_r = :campo_numerico01
+        INTO nome_cliente ;
+    }
+}
+```
+
+### Exemplo correto
+```
+// CORRETO: usa descricao (String) para CNPJ alfanumerico
+formId.descricao01 = CNPJ.ZEROS.r;
+formId.descricao02 = CNPJ.ZEROS.o;
+
+FIELD descricao01 extends systextil.widgets.cliente.R
+{
+    WHEN VALUE CHANGES
+    {
+        EXEC SQL
+        select nome_cliente from pedi_010
+        where pedi_010.cgc_r = :descricao01
+        INTO nome_cliente ;
+    }
+}
+```
+
+### Atenção
+
+Nem todo `campo_numerico*` é CNPJ. Apenas os que atendem aos critérios acima. Por exemplo, `campo_numerico04` que recebe um inteiro normal (tipo de processo, sequência, etc.) **não deve ser alterado**.

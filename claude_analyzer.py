@@ -57,6 +57,12 @@ IMPORTANTE:
 - Se o contexto for insuficiente para confirmar, classifique como FALSO_POSITIVO
 - BUG_1 (dualidade INSERT/builder): so e CRITICO se a tabela estiver na lista TABELAS_DUALIDADE
   Se o contexto nao mencionar explicitamente uma tabela de dualidade, classificar como FALSO_POSITIVO
+- BUG_LEGADO em arquivos .fj: SQL em blocos EXEC SQL usando colunas legadas (cgc_9, cgc_4) sem
+  versao nova (cgc_r, cgc_o) e CRITICO — correcao e substituir a coluna legada pela nova
+- CAMPO_NUMERICO_CNPJ: FIELD campo_numerico* usado para CNPJ em .fj e CRITICO —
+  correcao e alterar para campo descricao (String) pois CNPJ agora e VARCHAR2.
+  Nem todo campo_numerico e CNPJ — so os que extendem widgets CNPJ, recebem CNPJ.ZEROS
+  ou tem SQL com colunas CNPJ. campo_numerico* sem relacao CNPJ e FALSO_POSITIVO
 
 Para cada item:
 1. Confirme se e bug real ou falso positivo usando APENAS o contexto fornecido
@@ -69,6 +75,8 @@ Para cada item:
    - A duplicacao e feita adicionando a coluna legada no INSERT com o mesmo valor da nova coluna — o sistema ja faz a conversao internamente
    - Exemplo correto: "Adicionar 'tran_cli_forne9' e 'tran_cli_forne4' no INSERT junto com 'tran_cli_forne_r' e 'tran_cli_forne_o'"
    - Nao sugerir Integer.parseInt, conversao de tipo ou casting em correcoes de dualidade
+   - Para BUG_LEGADO em .fj: correcao e substituir coluna legada pela nova no EXEC SQL (ex: cgc_9 -> cgc_r)
+   - Para CAMPO_NUMERICO_CNPJ: correcao e trocar campo_numerico* por descricao* (String) no FIELD e em todas as referencias do formulario
 
 Responda SOMENTE com JSON valido, sem markdown, sem texto adicional:
 {{

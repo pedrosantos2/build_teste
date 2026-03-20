@@ -955,6 +955,209 @@ def detectar_init_field_fj(linhas_limpas, nome_arquivo=""):
 
     return erros
 
+def detectar_cnpj_legado_em_exec_sql_fj(linhas_limpas, nome_arquivo=""):
+    """
+    Detecta colunas CNPJ legado (_9/_4/9/4) em blocos EXEC SQL de arquivos .fj.
+    Em .fj o SQL e escrito diretamente (sem aspas), entao o detector de SQL
+    em strings Java nao funciona. Esse detector cobre esse caso.
+    """
+    if not nome_arquivo.endswith(".fj"):
+        return []
+
+    erros = []
+    pat_exec_sql = re.compile(r'\bEXEC\s+SQL\b', re.IGNORECASE)
+
+    pat_leg_nosus = re.compile(r'\b([a-z_][a-z0-9_]{2,}[a-z0-9])(9|4)\b')
+    pat_leg_sus   = re.compile(r'\b([a-z_][a-z0-9_]{2,})_(9|4)\b')
+    pat_leg_mid   = re.compile(r'\b([a-z_][a-z0-9_]*)(9|4)([a-z_][a-z0-9_]+)\b')
+
+    already_reported = set()
+
+    i = 0
+    while i < len(linhas_limpas):
+        if not pat_exec_sql.search(linhas_limpas[i]):
+            i += 1
+            continue
+
+        linha_inicio = i + 1
+
+        # Coleta o bloco EXEC SQL ate INTO ou ;
+        bloco_linhas = []
+        j = i
+        while j < min(len(linhas_limpas), i + 60):
+            bloco_linhas.append(linhas_limpas[j].lower())
+            if 'into ' in linhas_limpas[j].lower() or linhas_limpas[j].rstrip().endswith(';'):
+                break
+            j += 1
+
+        sql_block = ' '.join(bloco_linhas)
+
+        # Pula se nao tem keyword SQL
+        if not re.search(r'\b(select|insert|update|delete|from|where)\b', sql_block, re.IGNORECASE):
+            i = j + 1
+            continue
+
+        # Pula se referencia tabela nativa VARCHAR2
+        pat_tabela = re.compile(r'\b(from|into|update)\s+([a-z0-9_]+)', re.IGNORECASE)
+        tabelas_no_bloco = {m.group(2).upper() for m in pat_tabela.finditer(sql_block)}
+        if tabelas_no_bloco & TABELAS_NATIVAS_VARCHAR2:
+            i = j + 1
+            continue
+
+        def _verificar_fj(base, digit, col_display):
+            if col_display in COLUNAS_NATIVAS_VARCHAR2:
+                return
+            if not _e_coluna_cnpj(base):
+                return
+            # Verifica se o trio existe (digito verificador 2)
+            if (base + '2') not in sql_block and (base + '_2') not in sql_block:
+                return
+            novo = (base + '_r') if digit == '9' else (base + '_o')
+            if novo in sql_block:
+                return
+            key = (linha_inicio, col_display)
+            if key in already_reported:
+                return
+            already_reported.add(key)
+            _achar(erros, linha_inicio, "BUG_LEGADO", "ERRO",
+                   f"EXEC SQL usa coluna legado '{col_display}' sem versao nova '{novo}' "
+                   f"-- codigo .fj ainda nao migrado")
+
+        def _verificar_mid_fj(prefix, digit, suffix):
+            col_display = prefix + digit + suffix
+            if col_display in COLUNAS_NATIVAS_VARCHAR2:
+                return
+            if not _e_coluna_cnpj(prefix) and not _e_coluna_cnpj(suffix):
+                return
+            if (prefix + '2' + suffix) not in sql_block:
+                return
+            letra = '_r' if digit == '9' else '_o'
+            novos = [
+                prefix + letra + suffix,
+                prefix + '_' + suffix + letra,
+                prefix + suffix + letra,
+                (prefix + '_' + suffix + letra).replace('__', '_')
+            ]
+            if any(n in sql_block for n in novos):
+                return
+            key = (linha_inicio, col_display)
+            if key in already_reported:
+                return
+            already_reported.add(key)
+            sugerido = (prefix + '_' + suffix + letra).replace('__', '_')
+            _achar(erros, linha_inicio, "BUG_LEGADO", "ERRO",
+                   f"EXEC SQL usa coluna legado '{col_display}' sem versao nova '{sugerido}' "
+                   f"-- codigo .fj ainda nao migrado")
+
+        for m in pat_leg_nosus.finditer(sql_block):
+            _verificar_fj(m.group(1), m.group(2), m.group(1) + m.group(2))
+
+        for m in pat_leg_sus.finditer(sql_block):
+            _verificar_fj(m.group(1), m.group(2), m.group(1) + '_' + m.group(2))
+
+        for m in pat_leg_mid.finditer(sql_block):
+            _verificar_mid_fj(m.group(1), m.group(2), m.group(3))
+
+        i = j + 1
+    return erros
+
+
+def detectar_campo_numerico_cnpj_fj(linhas_limpas, nome_arquivo=""):
+    """
+    Detecta FIELDs com nome 'campo_numerico*' que estao sendo usados para CNPJ
+    em arquivos .fj. Esses campos precisam ser alterados para 'descricao*'
+    porque CNPJ alfanumerico e String, nao numerico.
+
+    Sinais de uso CNPJ:
+      - FIELD extends systextil.widgets.cliente.R / .O / .D
+      - SQL no bloco do FIELD referencia colunas CNPJ (_r/_o/_9/_4/cgc/cnpj)
+        com bind variable :campo_numerico*
+      - Atribuicao formId.campo_numerico* = CNPJ.ZEROS.*
+    """
+    if not nome_arquivo.endswith(".fj"):
+        return []
+
+    erros = []
+    texto_completo = '\n'.join(linhas_limpas).lower()
+
+    # Detecta campo_numerico* atribuido com CNPJ.ZEROS (fora de FIELDs)
+    campos_cnpj_global = set()
+    pat_zeros = re.compile(
+        r'(?:formId\.)?(campo_numerico\d+)\s*=\s*CNPJ\.ZEROS\.',
+        re.IGNORECASE
+    )
+    for m in pat_zeros.finditer('\n'.join(linhas_limpas)):
+        campos_cnpj_global.add(m.group(1).lower())
+
+    # Regex para detectar FIELD campo_numerico*
+    pat_field = re.compile(
+        r'\bFIELD\s+(campo_numerico\d+)\s+extends\s+([\w.]+)',
+        re.IGNORECASE
+    )
+    # Widgets CNPJ
+    pat_widget_cnpj = re.compile(
+        r'systextil\.widgets\.cliente\.[ROD]$',
+        re.IGNORECASE
+    )
+    # Colunas CNPJ em SQL (bind ou referencia)
+    pat_col_cnpj_sql = re.compile(
+        r'\b\w*(?:cgc|cnpj|cod_part|fornecedor|fornec|forn)\w*[._](?:r|o|9|4|2)\b',
+        re.IGNORECASE
+    )
+
+    already_reported = set()
+
+    i = 0
+    while i < len(linhas_limpas):
+        m_field = pat_field.search(linhas_limpas[i])
+        if not m_field:
+            i += 1
+            continue
+
+        nome_field = m_field.group(1).lower()
+        widget     = m_field.group(2)
+        linha_inicio = i + 1
+
+        # Coleta o bloco do FIELD (ate fechar as chaves)
+        bloco = []
+        depth = 0
+        j = i
+        while j < min(len(linhas_limpas), i + 200):
+            bloco.append(linhas_limpas[j])
+            depth += linhas_limpas[j].count('{') - linhas_limpas[j].count('}')
+            if j > i and depth <= 0:
+                break
+            j += 1
+
+        bloco_txt = '\n'.join(bloco)
+        e_cnpj = False
+
+        # Sinal 1: extends widget CNPJ
+        if pat_widget_cnpj.search(widget):
+            e_cnpj = True
+
+        # Sinal 2: SQL no bloco referencia coluna CNPJ com :campo_numerico*
+        if not e_cnpj and re.search(r'\bEXEC\s+SQL\b', bloco_txt, re.IGNORECASE):
+            if pat_col_cnpj_sql.search(bloco_txt):
+                # Confirma que o bind variable e o proprio campo_numerico
+                if re.search(r':' + re.escape(nome_field), bloco_txt, re.IGNORECASE):
+                    e_cnpj = True
+
+        # Sinal 3: campo aparece em atribuicao CNPJ.ZEROS global
+        if not e_cnpj and nome_field in campos_cnpj_global:
+            e_cnpj = True
+
+        if e_cnpj and nome_field not in already_reported:
+            already_reported.add(nome_field)
+            _achar(erros, linha_inicio, "CAMPO_NUMERICO_CNPJ", "ERRO",
+                   f"FIELD '{nome_field}' e numerico mas esta sendo usado para CNPJ alfanumerico "
+                   f"-- alterar para campo descricao (String) pois CNPJ agora e VARCHAR2")
+
+        i = j + 1 if j > i else i + 1
+
+    return erros
+
+
 # ============================================================
 # ORQUESTRADOR DE BUGS
 # ============================================================
@@ -975,6 +1178,8 @@ def detectar_todos_bugs(linhas_limpas, texto_limpo, caminho_arquivo=""):
     erros  += detectar_bug10(linhas_limpas)
     avisos += detectar_bug8(linhas_limpas)
     erros  += detectar_cnpj_legado_em_sql(texto_limpo)
+    erros  += detectar_cnpj_legado_em_exec_sql_fj(linhas_limpas, nome_arquivo=caminho_arquivo)
+    erros  += detectar_campo_numerico_cnpj_fj(linhas_limpas, nome_arquivo=caminho_arquivo)
     erros  += detectar_init_field_fj(linhas_limpas, nome_arquivo=caminho_arquivo)
 
     erros.sort(key=lambda x: x.get("linha", 0))
