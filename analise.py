@@ -191,7 +191,8 @@ def rodar_analise(arquivos: List[str], dir_cnpj: Optional[Path],
     resultados = []
 
     for relativo in arquivos:
-        if not relativo.endswith(".java"):
+        sufixo = Path(relativo).suffix
+        if sufixo not in EXTENSOES_ANALISAR:
             continue
 
         if dir_cnpj:
@@ -209,7 +210,7 @@ def rodar_analise(arquivos: List[str], dir_cnpj: Optional[Path],
             )
             if result.returncode != 0:
                 continue
-            tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".java", mode="wb")
+            tmp = tempfile.NamedTemporaryFile(delete=False, suffix=sufixo, mode="wb")
             tmp.write(result.stdout)
             tmp.close()
             try:
