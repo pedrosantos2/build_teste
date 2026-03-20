@@ -126,12 +126,22 @@ def listar_arquivos(dir_web: Path, dir_cnpj: Path) -> Dict[str, List[str]]:
         if not arquivo_web.exists():
             # Novo no CNPJ
             modificados.append(str(relativo))
+            if DEBUG and "supr_f252" in str(relativo):
+                print(f"      [DEBUG] listar_arquivos: {relativo} -> MODIFICADO (novo no CNPJ, nao existe no WEB)")
         elif not filecmp.cmp(str(arquivo_web), str(arquivo_cnpj), shallow=False):
             # Modificado
             modificados.append(str(relativo))
+            if DEBUG and "supr_f252" in str(relativo):
+                print(f"      [DEBUG] listar_arquivos: {relativo} -> MODIFICADO (diferente do WEB)")
+                print(f"      [DEBUG]   WEB:  {arquivo_web}")
+                print(f"      [DEBUG]   CNPJ: {arquivo_cnpj}")
         else:
             # Identico ao WEB — nunca tocado na migracao
             nao_tocados.append(str(relativo))
+            if DEBUG and "supr_f252" in str(relativo):
+                print(f"      [DEBUG] listar_arquivos: {relativo} -> NAO_TOCADO (identico ao WEB)")
+                print(f"      [DEBUG]   WEB:  {arquivo_web}")
+                print(f"      [DEBUG]   CNPJ: {arquivo_cnpj}")
 
     return {
         "modificados": sorted(modificados),
@@ -171,11 +181,62 @@ def listar_arquivos_git(repo_path: str, branch_main: str,
 # Analise estatica
 # ---------------------------------------------------------------------------
 
+DEBUG = os.environ.get("DEBUG_ANALISE", "").lower() in ("1", "true", "yes")
+
+
 def analisar_arquivo_do_disco(path_real: str, path_relativo: str) -> Optional[Dict]:
     """Roda grep_engine.analisar_arquivo em um arquivo real no disco."""
     if grep_engine.deve_ignorar(path_relativo):
+        if DEBUG:
+            print(f"      [DEBUG] IGNORADO: {path_relativo}")
         return None
+
+    if DEBUG:
+        print(f"      [DEBUG] Analisando: {path_relativo}")
+        print(f"      [DEBUG]   path_real: {path_real}")
+        print(f"      [DEBUG]   existe: {Path(path_real).exists()}")
+        print(f"      [DEBUG]   tamanho: {Path(path_real).stat().st_size} bytes")
+        # Mostra primeiras linhas com colunas CNPJ para debug
+        try:
+            conteudo = Path(path_real).read_text(encoding="windows-1252", errors="replace")
+            linhas = conteudo.split('\n')
+            print(f"      [DEBUG]   total linhas: {len(linhas)}")
+            # Procura colunas legadas e novas no arquivo
+            import re as _re
+            legadas = []
+            novas = []
+            for i, linha in enumerate(linhas, 1):
+                if _re.search(r'forn_ped_forne[94]|cgc_[94]|cgc_for[94]', linha, _re.IGNORECASE):
+                    legadas.append(f"      [DEBUG]     L{i}: {linha.strip()[:100]}")
+                if _re.search(r'forn_ped_forne_[ro]|cgc_[ro]|cgc_for_[ro]', linha, _re.IGNORECASE):
+                    novas.append(f"      [DEBUG]     L{i}: {linha.strip()[:100]}")
+            if legadas:
+                print(f"      [DEBUG]   COLUNAS LEGADAS encontradas ({len(legadas)}):")
+                for l in legadas[:10]:
+                    print(l)
+            else:
+                print(f"      [DEBUG]   COLUNAS LEGADAS: nenhuma (arquivo migrado)")
+            if novas:
+                print(f"      [DEBUG]   COLUNAS NOVAS encontradas ({len(novas)}):")
+                for n in novas[:10]:
+                    print(n)
+        except Exception as ex:
+            print(f"      [DEBUG]   erro lendo conteudo: {ex}")
+
     r = grep_engine.analisar_arquivo(path_real)
+
+    if DEBUG:
+        if r:
+            erros = r.get("erros", [])
+            avisos = r.get("avisos", [])
+            print(f"      [DEBUG]   resultado: {len(erros)} erros, {len(avisos)} avisos, categoria={r.get('categoria','?')}")
+            for e in erros:
+                print(f"      [DEBUG]     ERRO L{e.get('linha','?')} [{e.get('bug','')}]: {e.get('mensagem','')[:100]}")
+            for a in avisos:
+                print(f"      [DEBUG]     AVISO L{a.get('linha','?')} [{a.get('bug','')}]: {a.get('mensagem','')[:100]}")
+        else:
+            print(f"      [DEBUG]   resultado: None (sem erros)")
+
     if r:
         r["arquivo_original"] = path_relativo
         r["arquivo"]          = Path(path_relativo).name
@@ -308,14 +369,30 @@ def rodar_analise(arquivos: List[str], dir_cnpj: Optional[Path],
 
         # Tenta ler do disco: dir_cnpj ou repo_path (workspace do Jenkins)
         path_real = None
+        fonte = None
         if dir_cnpj:
             candidato = dir_cnpj / relativo
             if candidato.exists():
                 path_real = str(candidato)
+                fonte = "dir_cnpj"
         if not path_real and repo_path:
             candidato = Path(repo_path) / relativo
             if candidato.exists():
                 path_real = str(candidato)
+                fonte = "repo_path"
+
+        if DEBUG and "supr_f252" in relativo:
+            print(f"      [DEBUG] === supr_f252 RASTREIO ===")
+            print(f"      [DEBUG]   relativo: {relativo}")
+            print(f"      [DEBUG]   dir_cnpj: {dir_cnpj}")
+            print(f"      [DEBUG]   repo_path: {repo_path}")
+            if dir_cnpj:
+                c = dir_cnpj / relativo
+                print(f"      [DEBUG]   candidato dir_cnpj: {c} (existe={c.exists()})")
+            if repo_path:
+                c = Path(repo_path) / relativo
+                print(f"      [DEBUG]   candidato repo_path: {c} (existe={c.exists()})")
+            print(f"      [DEBUG]   path_real escolhido: {path_real} (fonte={fonte})")
 
         if path_real:
             r = analisar_arquivo_do_disco(path_real, relativo)
