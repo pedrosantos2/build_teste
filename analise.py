@@ -270,6 +270,73 @@ def _filtrar_init_field_com_web(resultados: List[Dict],
         r["erros"] = erros_filtrados
 
 
+def _coletar_telas_hdoc(arquivos: List[str], dir_cnpj: Optional[Path],
+                        repo_path: Optional[str], branch_cnpj: Optional[str]) -> set:
+    """
+    Escaneia arquivos .jsp procurando target_table=HDOC_001.
+    Retorna set de base names (sem extensao) cujas telas usam HDOC_001.
+    Para essas telas, erros em .fj e .jsp serao rebaixados a AVISO.
+    """
+    import re as _re
+    bases_hdoc = set()
+    pat = _re.compile(r'target_table\s*=\s*["\']?HDOC_001', _re.IGNORECASE)
+
+    for relativo in arquivos:
+        if not relativo.endswith(".jsp"):
+            continue
+
+        conteudo = None
+        if dir_cnpj:
+            path_real = dir_cnpj / relativo
+            if path_real.exists():
+                try:
+                    conteudo = path_real.read_text(encoding="windows-1252", errors="replace")
+                except Exception:
+                    pass
+        elif repo_path and branch_cnpj:
+            result = subprocess.run(
+                ["git", "show", f"{branch_cnpj}:{relativo}"],
+                cwd=repo_path, capture_output=True
+            )
+            if result.returncode == 0:
+                conteudo = result.stdout.decode("windows-1252", errors="replace")
+
+        if conteudo and pat.search(conteudo):
+            base = Path(relativo).stem  # ex: basi_f965
+            bases_hdoc.add(base)
+
+    return bases_hdoc
+
+
+def _rebaixar_erros_hdoc(resultados: List[Dict], bases_hdoc: set) -> None:
+    """
+    Para telas com target_table=HDOC_001, rebaixa todos os ERRO para AVISO
+    nos arquivos .fj e .jsp correspondentes.
+    """
+    if not bases_hdoc:
+        return
+
+    for r in resultados:
+        relativo = r.get("arquivo_original", r.get("arquivo", ""))
+        sufixo = Path(relativo).suffix
+        if sufixo not in (".fj", ".jsp"):
+            continue
+
+        base = Path(relativo).stem
+        if base not in bases_hdoc:
+            continue
+
+        # Move erros para avisos
+        erros_rebaixados = []
+        for e in r.get("erros", []):
+            e["tipo"] = "AVISO"
+            e["mensagem"] = "[HDOC_001] " + e.get("mensagem", "")
+            erros_rebaixados.append(e)
+
+        r["avisos"] = r.get("avisos", []) + erros_rebaixados
+        r["erros"] = []
+
+
 def rodar_analise(arquivos: List[str], dir_cnpj: Optional[Path],
                   repo_path: Optional[str], branch_cnpj: Optional[str]) -> List[Dict]:
     """
@@ -500,6 +567,13 @@ def main():
         except RuntimeError:
             pass
     _filtrar_init_field_com_web(resultados, dir_web, repo_path, branch_main)
+
+    # Rebaixa erros para AVISO em telas com target_table=HDOC_001
+    todos_arquivos = modificados + nao_tocados
+    bases_hdoc = _coletar_telas_hdoc(todos_arquivos, dir_cnpj, repo_path, branch_cnpj)
+    if bases_hdoc:
+        print(f"      Telas HDOC_001 (rebaixadas a AVISO): {', '.join(sorted(bases_hdoc))}")
+    _rebaixar_erros_hdoc(resultados, bases_hdoc)
 
     total_erros  = sum(len(r.get("erros",  [])) for r in resultados)
     total_avisos = sum(len(r.get("avisos", [])) for r in resultados)
