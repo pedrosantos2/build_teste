@@ -524,7 +524,13 @@ Campos CNPJ em formulários `.fj` que possuem a propriedade `INIT FIELD` devem c
 
 ### Regra de validação
 
-Para cada `FIELD` cujo nome contém palavra de `PALAVRAS_CNPJ`:
+Um FIELD só é considerado CNPJ se:
+1. O widget extende `systextil.widgets.cliente.R`, `.O` ou `.D`, **OU**
+2. O nome do campo termina com `_r`, `_o` ou `_2` **E** contém palavra CNPJ (cgc, cnpj, cli, forn, etc.)
+
+Campos como `tipos_forn`, `cod_fornecedor`, `nome_cli` **NÃO** são CNPJ — não possuem sufixo `_r`/`_o`/`_2` nem widget CNPJ.
+
+Para cada `FIELD` que é CNPJ conforme os critérios acima:
 - Se tem bloco `INIT FIELD` sem `super.initField()` → **CRÍTICO**
 - Se não tem bloco `INIT FIELD` → **OK** (não é obrigatório ter)
 - Se tem `INIT FIELD` com `super.initField()` → **CORRETO**

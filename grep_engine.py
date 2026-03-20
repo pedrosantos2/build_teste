@@ -928,8 +928,11 @@ def detectar_init_field_fj(linhas_limpas, nome_arquivo=""):
             nome_field = m_field.group(1).lower()
             widget     = m_field.group(2)
 
-            # Verifica se e campo CNPJ: por nome ou por widget
-            e_cnpj = _e_coluna_cnpj(nome_field) or bool(pat_widget_cnpj.search(widget))
+            # Verifica se e campo CNPJ: por widget OU por nome com sufixo _r/_o/_2
+            # Apenas _e_coluna_cnpj nao basta — 'tipos_forn' contem 'forn' mas nao e CNPJ
+            e_cnpj_widget = bool(pat_widget_cnpj.search(widget))
+            e_cnpj_sufixo = bool(re.search(r'_[ro2]$', nome_field))
+            e_cnpj = e_cnpj_widget or (e_cnpj_sufixo and _e_coluna_cnpj(nome_field))
 
             if e_cnpj:
                 # Coleta o bloco do FIELD (ate fechar as chaves)
