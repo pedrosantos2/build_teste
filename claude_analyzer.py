@@ -55,6 +55,9 @@ IMPORTANTE:
 - Responda SOMENTE com base nas informacoes fornecidas abaixo
 - NAO tente executar comandos, acessar arquivos ou buscar informacoes externas
 - NAO use ferramentas — analise apenas o contexto ja fornecido em cada item
+- NAO INVENTE bugs que nao estao nos candidatos. Retorne EXATAMENTE um resultado para cada candidato enviado.
+  Se o candidato mostra codigo que JA FOI MIGRADO corretamente (usa _r/_o em vez de _9/_4), classifique como FALSO_POSITIVO.
+  Nunca deduza que existia uma coluna legada so porque ve a versao nova — analise apenas o que esta no contexto.
 - Se o contexto for insuficiente para confirmar, classifique como FALSO_POSITIVO
 - BUG_1 (dualidade INSERT/builder): so e CRITICO se a tabela estiver na lista TABELAS_DUALIDADE
   Se o contexto nao mencionar explicitamente uma tabela de dualidade, classificar como FALSO_POSITIVO
@@ -78,6 +81,10 @@ Para cada item:
    - Nao sugerir Integer.parseInt, conversao de tipo ou casting em correcoes de dualidade
    - Para BUG_LEGADO em .fj: correcao e substituir coluna legada pela nova no EXEC SQL (ex: cgc_9 -> cgc_r)
    - Para CAMPO_NUMERICO_CNPJ: correcao e trocar campo_numerico* por descricao* (String) no FIELD e em todas as referencias do formulario
+
+REGRA CRITICA: Retorne APENAS bugs para os candidatos listados abaixo.
+NAO adicione bugs para arquivos ou colunas que nao estao nos candidatos.
+Se um candidato tem {len(hits_lote)} itens, o JSON deve ter no maximo {len(hits_lote)} bugs.
 
 Responda SOMENTE com JSON valido, sem markdown, sem texto adicional:
 {{
