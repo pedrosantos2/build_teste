@@ -248,6 +248,41 @@ def _rebaixar_erros_hdoc(resultados: List[Dict], bases_hdoc: set) -> None:
         r["erros"] = []
 
 
+def _rebaixar_bugs_claude_hdoc(resultado_claude: Dict, bases_hdoc: set) -> None:
+    """
+    Rebaixa severidade de bugs do Claude para ADVERTENCIA quando o arquivo
+    pertence a uma tela com target_table=HDOC_001.
+    Tambem recalcula o resumo de contagens.
+    """
+    if not bases_hdoc:
+        return
+
+    for bug in resultado_claude.get("bugs", []):
+        arquivo = bug.get("arquivo", "")
+        p = Path(arquivo)
+        base = p.stem
+        sufixo = p.suffix
+        # Claude pode retornar path completo ou so o nome — pega o stem do name
+        if not sufixo:
+            continue
+        if sufixo not in (".fj", ".jsp"):
+            continue
+        if base in bases_hdoc and bug.get("severidade") not in ("FALSO_POSITIVO", "ADVERTENCIA"):
+            bug["severidade"] = "ADVERTENCIA"
+            bug["descricao"] = "[HDOC_001] " + bug.get("descricao", "")
+
+    # Recalcula resumo
+    todos_bugs = resultado_claude.get("bugs", [])
+    resultado_claude["resumo"] = {
+        "criticos":         sum(1 for b in todos_bugs if b.get("severidade") == "CRITICO"),
+        "medios":           sum(1 for b in todos_bugs if b.get("severidade") == "MEDIO"),
+        "baixos":           sum(1 for b in todos_bugs if b.get("severidade") == "BAIXO"),
+        "sugestoes":        sum(1 for b in todos_bugs if b.get("severidade") == "SUGESTAO"),
+        "advertencias":     sum(1 for b in todos_bugs if b.get("severidade") == "ADVERTENCIA"),
+        "falsos_positivos": sum(1 for b in todos_bugs if b.get("severidade") == "FALSO_POSITIVO"),
+    }
+
+
 def rodar_analise(arquivos: List[str], dir_cnpj: Optional[Path],
                   repo_path: Optional[str], branch_cnpj: Optional[str]) -> List[Dict]:
     """
@@ -499,6 +534,10 @@ def main():
             skill_path   = args.skill,
             exemplos_dir = args.exemplos,
         )
+        # Rebaixa bugs HDOC_001 no resultado do Claude tambem
+        if bases_hdoc:
+            _rebaixar_bugs_claude_hdoc(resultado_claude, bases_hdoc)
+
         uso = resultado_claude.get("_usage", {})
         print(f"      Tokens: {uso.get('input_tokens',0):,} input "
               f"| {uso.get('output_tokens',0):,} output "
