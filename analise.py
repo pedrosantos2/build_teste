@@ -409,11 +409,12 @@ def main():
     # Resolve paths
     if args.modo_git:
         # Modo local — usa git diff
+        from grep_engine import _resolver_branch_cnpj
         repo_path  = str(Path.cwd()) if modulo == "." else modulo
         modulo     = Path(repo_path).name
         dir_web    = None
         dir_cnpj   = None
-        branch_cnpj = None
+        branch_cnpj = _resolver_branch_cnpj(repo_path)
     else:
         # Modo Jenkins — dois diretorios separados
         repo_path   = None
@@ -447,7 +448,7 @@ def main():
         if not dir_cnpj.exists():
             print(f"ERRO: diretorio CNPJ nao encontrado: {dir_cnpj}")
             sys.exit(1)
-        if not dir_web.exists():
+        if dir_web and not dir_web.exists():
             print(f"ERRO: diretorio WEB nao encontrado: {dir_web}")
             sys.exit(1)
 
