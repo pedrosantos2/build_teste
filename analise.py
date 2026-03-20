@@ -73,6 +73,10 @@ def parse_args():
                    help="Diretorio de saida para JSON e HTML (default: dir-cnpj)")
     p.add_argument("--modo-git",       action="store_true",
                    help="Usa git diff em vez de comparar diretorios (modo local)")
+    p.add_argument("--branch-web",  default=None,
+                   help="Branch WEB/principal (auto-detecta: WEB, main, master)")
+    p.add_argument("--branch-cnpj", default=None,
+                   help="Branch CNPJ (auto-detecta: origin/CNPJ, CNPJ)")
     return p.parse_args()
 
 
@@ -139,12 +143,9 @@ def listar_arquivos(dir_web: Path, dir_cnpj: Path) -> Dict[str, List[str]]:
 # Comparacao via Git — modo local
 # ---------------------------------------------------------------------------
 
-def listar_arquivos_git(repo_path: str) -> Dict[str, List[str]]:
-    from grep_engine import _resolver_branch_cnpj, _resolver_branch_principal
-    branch_cnpj = _resolver_branch_cnpj(repo_path)
-    branch_main = _resolver_branch_principal(repo_path)
-
-    # Modificados
+def listar_arquivos_git(repo_path: str, branch_main: str,
+                        branch_cnpj: str) -> Dict[str, List[str]]:
+    # Modificados: diff entre branch principal (WEB) e branch CNPJ
     result = subprocess.run(
         ["git", "diff", f"{branch_main}..{branch_cnpj}", "--name-only"],
         cwd=repo_path, capture_output=True, text=True,
@@ -390,7 +391,7 @@ def converter_para_hits(resultados: List[Dict]) -> List[Dict]:
                 "linha":         item.get("linha", 0),
                 "tipo":          item.get("bug", ""),
                 "sev_estimada":  "CRITICO" if item.get("tipo") == "ERRO" else "MEDIO",
-                "codigo":        "",
+                "codigo":        item.get("codigo", ""),
                 "contexto":      mensagem,
                 "match":         mensagem[:80],
                 "pre_existente": pre_existente,
@@ -408,17 +409,26 @@ def main():
 
     # Resolve paths
     if args.modo_git:
-        # Modo local — usa git diff
-        from grep_engine import _resolver_branch_cnpj
-        repo_path  = str(Path.cwd()) if modulo == "." else modulo
-        modulo     = Path(repo_path).name
-        dir_web    = None
-        dir_cnpj   = None
-        branch_cnpj = _resolver_branch_cnpj(repo_path)
+        # Modo git — um unico repositorio, compara branches
+        # Branch principal (WEB/main/master) vs branch CNPJ
+        # Aceita --dir-cnpj como path do repositorio
+        from grep_engine import _resolver_branch_cnpj, _resolver_branch_principal
+        if args.dir_cnpj:
+            repo_path = str(Path(args.dir_cnpj).resolve())
+        elif modulo == ".":
+            repo_path = str(Path.cwd())
+        else:
+            repo_path = modulo
+        modulo      = Path(repo_path).name
+        dir_web     = None
+        dir_cnpj    = None
+        branch_cnpj = args.branch_cnpj or _resolver_branch_cnpj(repo_path)
+        branch_main = args.branch_web  or _resolver_branch_principal(repo_path)
     else:
         # Modo Jenkins — dois diretorios separados
         repo_path   = None
         branch_cnpj = None
+        branch_main = None
 
         # Resolve dir_cnpj
         if args.dir_cnpj:
@@ -454,7 +464,11 @@ def main():
 
     print(f"\n{'='*60}")
     print(f"  Analise CNPJ — modulo: {modulo}")
-    if dir_web:
+    if args.modo_git:
+        print(f"  Repo : {repo_path}")
+        print(f"  WEB  : branch {branch_main}")
+        print(f"  CNPJ : branch {branch_cnpj}")
+    elif dir_web:
         print(f"  WEB  : {dir_web}")
         print(f"  CNPJ : {dir_cnpj}")
     print(f"{'='*60}")
@@ -465,7 +479,7 @@ def main():
     print(f"\n[1/3] Coletando arquivos modificados...")
 
     if args.modo_git:
-        mapa = listar_arquivos_git(repo_path)
+        mapa = listar_arquivos_git(repo_path, branch_main, branch_cnpj)
     elif dir_web is None:
         # WEB nao encontrado — analisa tudo como modificado
         todos = [str(f.relative_to(dir_cnpj))

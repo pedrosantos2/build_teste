@@ -1344,6 +1344,23 @@ def analisar_arquivo(caminho_arquivo):
             erros_unicos.append(item)
     erros = erros_unicos
 
+    # Anexa contexto de codigo (linhas ao redor do erro) para dar mais
+    # informacao ao Claude. Usa o texto original para mostrar o codigo real.
+    linhas_originais = texto_original.split('\n')
+    CONTEXTO_ANTES = 8
+    CONTEXTO_DEPOIS = 8
+    for item in erros + avisos:
+        linha_erro = item.get("linha", 1) - 1  # 0-based
+        inicio = max(0, linha_erro - CONTEXTO_ANTES)
+        fim    = min(len(linhas_originais), linha_erro + CONTEXTO_DEPOIS + 1)
+
+        # Monta bloco com numeros de linha
+        bloco = []
+        for idx in range(inicio, fim):
+            marcador = ">>>" if idx == linha_erro else "   "
+            bloco.append(f"{marcador} {idx+1:4d} | {linhas_originais[idx].rstrip()}")
+        item["codigo"] = '\n'.join(bloco)
+
     if categoria == "SEM_CNPJ" and (erros or avisos):
         categoria = "ERRO" if erros else "ATENCAO"
 
