@@ -998,6 +998,16 @@ def analisar_arquivo(caminho_arquivo):
 
     nome_arquivo  = Path(caminho_arquivo).name
 
+    # Coleta linhas com TODO/FIXME sobre CNPJ no texto original (antes de remover comentarios).
+    # Erros nessas linhas (ou na linha seguinte) serao ignorados — ja sao problemas conhecidos.
+    linhas_todo_cnpj = set()
+    pat_todo = re.compile(r'(?://|/\*)\s*(?:TODO|FIXME|HACK|XXX)\b', re.IGNORECASE)
+    pat_cnpj_todo = re.compile(r'\b(?:cnpj|cgc|alfanum|migra)', re.IGNORECASE)
+    for num, linha_orig in enumerate(texto_original.split('\n'), 1):
+        if pat_todo.search(linha_orig) and pat_cnpj_todo.search(linha_orig):
+            linhas_todo_cnpj.add(num)
+            linhas_todo_cnpj.add(num + 1)  # linha seguinte tambem (TODO costuma ser acima do codigo)
+
     # Mapeia linha limpa -> linha original ANTES de achatar text blocks
     # remover_comentarios preserva \n entao as linhas batem
     # achatar_text_blocks colapsa text blocks em 1 linha — por isso guardamos
@@ -1107,6 +1117,12 @@ def analisar_arquivo(caminho_arquivo):
                 item["linha"] = indice_conteudo[trecho]
                 continue
         item["linha"] = _linha_real(item.get("linha", 1))
+
+    # Filtra erros em linhas marcadas com TODO/FIXME sobre CNPJ
+    # Essas linhas representam problemas ja conhecidos e planejados
+    if linhas_todo_cnpj:
+        erros  = [e for e in erros  if e.get("linha", 0) not in linhas_todo_cnpj]
+        avisos = [a for a in avisos if a.get("linha", 0) not in linhas_todo_cnpj]
 
     # Consolida erros duplicados: mesmo bug + mesma mensagem -> mantém só o primeiro
     vistos = set()
