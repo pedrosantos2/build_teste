@@ -381,18 +381,29 @@ def rodar_analise(arquivos: List[str], dir_cnpj: Optional[Path],
                 path_real = str(candidato)
                 fonte = "repo_path"
 
-        if DEBUG and "supr_f252" in relativo:
-            print(f"      [DEBUG] === supr_f252 RASTREIO ===")
-            print(f"      [DEBUG]   relativo: {relativo}")
-            print(f"      [DEBUG]   dir_cnpj: {dir_cnpj}")
-            print(f"      [DEBUG]   repo_path: {repo_path}")
-            if dir_cnpj:
-                c = dir_cnpj / relativo
-                print(f"      [DEBUG]   candidato dir_cnpj: {c} (existe={c.exists()})")
-            if repo_path:
-                c = Path(repo_path) / relativo
-                print(f"      [DEBUG]   candidato repo_path: {c} (existe={c.exists()})")
-            print(f"      [DEBUG]   path_real escolhido: {path_real} (fonte={fonte})")
+        if "supr_f252" in relativo:
+            print(f"\n      ########## PROVA supr_f252 ##########")
+            print(f"      PATH LIDO: {path_real}")
+            print(f"      FONTE: {fonte}")
+            print(f"      dir_cnpj={dir_cnpj}")
+            print(f"      repo_path={repo_path}")
+            # Mostra se o arquivo lido tem colunas legadas ou novas
+            if path_real:
+                import re as _re
+                _conteudo = Path(path_real).read_text(encoding="windows-1252", errors="replace")
+                _tem_legado = bool(_re.search(r'forn_ped_forne[94]|cgc_for[94]', _conteudo))
+                _tem_novo   = bool(_re.search(r'forn_ped_forne_[ro]|cgc_for_[ro]', _conteudo))
+                print(f"      CONTEM COLUNAS LEGADAS (forne9/4): {_tem_legado}")
+                print(f"      CONTEM COLUNAS NOVAS (forne_r/o):  {_tem_novo}")
+                if _tem_legado:
+                    for _i, _l in enumerate(_conteudo.split('\n'), 1):
+                        if _re.search(r'forn_ped_forne[94]|cgc_for[94]', _l):
+                            print(f"        LEGADO L{_i}: {_l.strip()}")
+                if _tem_novo:
+                    for _i, _l in enumerate(_conteudo.split('\n'), 1):
+                        if _re.search(r'forn_ped_forne_[ro]|cgc_for_[ro]', _l):
+                            print(f"        NOVO   L{_i}: {_l.strip()}")
+            print(f"      ########################################\n")
 
         if path_real:
             r = analisar_arquivo_do_disco(path_real, relativo)
