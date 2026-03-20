@@ -136,18 +136,47 @@ def classificar(texto_limpo):
 # PALAVRAS-CHAVE CNPJ (filtro para deteccao _9/_4/_r/_o)
 # ============================================================
 
+# Palavras curtas (<=4 chars) precisam de word boundary ou delimitador de coluna
+# para nao fazer match em substrings como "format", "console", "translate", etc.
+# Delimitadores validos em nomes de coluna: inicio/fim de string, underscore, digito adjacente a letra
+_PALAVRAS_CURTAS = [p for p in PALAVRAS_CNPJ if len(p) <= 4]
+_PALAVRAS_LONGAS = [p for p in PALAVRAS_CNPJ if len(p) > 4]
+
+def _build_palavras_pattern():
+    """Constroi regex que exige word boundary para palavras curtas."""
+    partes = []
+    if _PALAVRAS_LONGAS:
+        partes.append('|'.join(re.escape(p) for p in _PALAVRAS_LONGAS))
+    if _PALAVRAS_CURTAS:
+        # Para palavras curtas, exigir que estejam delimitadas por _ ou inicio/fim
+        # Isso evita que 'for' match em 'format', 'cli' em 'clinical', etc.
+        curtas = '|'.join(re.escape(p) for p in _PALAVRAS_CURTAS)
+        partes.append(r'(?:(?:^|_)(?:' + curtas + r')(?:_|$|\d))')
+    return r'(?:' + '|'.join(partes) + r')'
+
 _RE_PALAVRAS_CNPJ = re.compile(
-    r'(?:' + '|'.join(re.escape(p) for p in PALAVRAS_CNPJ) + r')',
+    _build_palavras_pattern(),
     re.IGNORECASE,
 )
 
+# Para detectar colunas _r/_o em SQL, usamos palavras longas diretamente
+# e palavras curtas com delimitador de underscore para evitar falsos positivos
+_col_ro_partes = []
+if _PALAVRAS_LONGAS:
+    _col_ro_partes.append(r'\b\w*(?:' + '|'.join(re.escape(p) for p in _PALAVRAS_LONGAS) + r')\w*_[ro]\b')
+if _PALAVRAS_CURTAS:
+    _col_ro_partes.append(r'\b\w*(?:_|^)(?:' + '|'.join(re.escape(p) for p in _PALAVRAS_CURTAS) + r')(?:_|\d)\w*_[ro]\b')
 _RE_COL_CNPJ_RO_SQL = re.compile(
-    r'\b\w*(?:' + '|'.join(re.escape(p) for p in PALAVRAS_CNPJ) + r')\w*_[ro]\b',
+    r'(?:' + '|'.join(_col_ro_partes) + r')',
     re.IGNORECASE,
 )
 
 def _e_coluna_cnpj(nome):
-    """Retorna True se o nome da coluna contem uma palavra-chave do dominio CNPJ."""
+    """
+    Retorna True se o nome da coluna contem uma palavra-chave do dominio CNPJ.
+    Palavras curtas (cli, for, cons, tran, terc, tbm) so fazem match
+    quando delimitadas por underscore ou inicio/fim do nome.
+    """
     return bool(_RE_PALAVRAS_CNPJ.search(nome.lower()))
 
 # ============================================================
@@ -696,19 +725,24 @@ def detectar_bug10(linhas_limpas):
 
 def detectar_procedure_sem_rt(linhas_limpas):
     """
-    Detecta chamadas SQL 'call <procedure>( ... )' dentro de strings Java
+    Detecta chamadas SQL 'call <procedure>( ... )' dentro de strings Java.
+    So escaneia blocos que contenham a palavra 'call' para evitar busca desnecessaria.
+    Usa _e_coluna_cnpj() para validar parametros CNPJ (com word boundary).
     """
     erros = []
     pat_call = re.compile(r'\bcall\s+(\w+)', re.IGNORECASE)
     pat_frag = re.compile(r'"((?:[^"\\]|\\.)*)"')
-
-    cnpj_kw = '|'.join(re.escape(p) for p in PALAVRAS_CNPJ)
-    pat_cnpj_col = re.compile(r'\b\w*(?:' + cnpj_kw + r')\w*\b', re.IGNORECASE)
+    pat_call_rapido = re.compile(r'\bcall\b', re.IGNORECASE)
 
     already_reported = set()
 
     i = 0
     while i < len(linhas_limpas):
+        # Otimizacao: so escaneia bloco de 40 linhas se a linha atual contem "call"
+        if not pat_call_rapido.search(linhas_limpas[i]):
+            i += 1
+            continue
+
         frags = []
         for j in range(i, min(len(linhas_limpas), i + 40)):
             for f in pat_frag.findall(linhas_limpas[j]):
@@ -733,7 +767,11 @@ def detectar_procedure_sem_rt(linhas_limpas):
                 else:
                     params_text = rest[paren_start:paren_end + 1]
 
-                if pat_cnpj_col.search(params_text):
+                # Extrai palavras dos parametros e verifica com _e_coluna_cnpj
+                param_words = re.findall(r'[a-z_][a-z0-9_]*', params_text, re.IGNORECASE)
+                has_cnpj_param = any(_e_coluna_cnpj(w) for w in param_words)
+
+                if has_cnpj_param:
                     linha_num = i + 1
                     key = (linha_num, proc_name)
                     if key in already_reported:
@@ -795,7 +833,7 @@ def detectar_cnpj_legado_em_sql(texto_limpo):
         def _verificar(base, digit, col_display):
             if col_display in COLUNAS_NATIVAS_VARCHAR2:
                 return
-            if not any(kw in base for kw in PALAVRAS_CNPJ):
+            if not _e_coluna_cnpj(base):
                 return
             if (base + '2') not in sql_block and (base + '_2') not in sql_block:
                 return
@@ -814,7 +852,7 @@ def detectar_cnpj_legado_em_sql(texto_limpo):
             col_display = prefix + digit + suffix
             if col_display in COLUNAS_NATIVAS_VARCHAR2:
                 return
-            if not any(kw in prefix or kw in suffix for kw in PALAVRAS_CNPJ):
+            if not _e_coluna_cnpj(prefix) and not _e_coluna_cnpj(suffix):
                 return
             if (prefix + '2' + suffix) not in sql_block:
                 return
@@ -974,18 +1012,28 @@ def analisar_arquivo(caminho_arquivo):
     linhas_limpas        = texto_limpo.split('\n')
 
     # Monta o mapa: indice_limpo (0-based) -> numero_linha_original (1-based)
-    # Estrategia: percorre o original e o achatado em paralelo
-    # Quando uma linha do achatado bate com o original, avanca os dois
-    # Quando nao bate (text block colapsado), avanca so o original
+    # Estrategia: percorre o original e o achatado em paralelo.
+    # Quando uma linha do achatado bate com o original, avanca os dois.
+    # Quando nao bate (text block colapsado em 1 linha), registra a posicao
+    # de INICIO do text block e avanca o original ate encontrar o proximo match.
     mapa_linha = {}
     i_orig = 0
     for i_limpo, linha_limpa in enumerate(linhas_limpas):
         limpa_strip = linha_limpa.strip()
 
-        # Avanca no original procurando match
+        if not limpa_strip:
+            # Linha limpa vazia — mapeia para posicao atual do original
+            mapa_linha[i_limpo] = i_orig + 1
+            # Avanca o original tambem se a linha original tambem e vazia
+            if i_orig < len(linhas_antes_achatar) and not linhas_antes_achatar[i_orig].strip():
+                i_orig += 1
+            continue
+
+        # Procura match exato no original, avancando linhas vazias e de text block
         encontrou = False
         tentativas = 0
-        while i_orig < len(linhas_antes_achatar) and tentativas < 200:
+        pos_inicio = i_orig  # guarda onde comecou a busca (inicio do text block)
+        while i_orig < len(linhas_antes_achatar) and tentativas < 300:
             orig_strip = linhas_antes_achatar[i_orig].strip()
 
             if orig_strip == limpa_strip:
@@ -995,44 +1043,58 @@ def analisar_arquivo(caminho_arquivo):
                 encontrou = True
                 break
 
-            if not limpa_strip:
-                # Linha limpa vazia — mapeia para posicao atual e avanca
-                mapa_linha[i_limpo] = i_orig + 1
-                encontrou = True
-                break
-
             if not orig_strip:
-                # Linha original vazia — avanca so o original (comentario removido)
+                # Linha original vazia (comentario removido) — pula
                 i_orig += 1
                 tentativas += 1
                 continue
 
-            # Linha original diferente — provavelmente parte de text block colapsado
-            # ou comentario. Registra a posicao atual e avanca o original
+            # Linha original diferente — pode ser parte de text block colapsado.
+            # Verifica se a linha limpa CONTEM o conteudo da original (text block
+            # foi achatado numa unica linha contendo pedacos das linhas originais)
+            if orig_strip.replace(' ', '') in limpa_strip.replace(' ', ''):
+                # Parte do text block — registra inicio e continua consumindo
+                if i_limpo not in mapa_linha:
+                    mapa_linha[i_limpo] = pos_inicio + 1
+                i_orig += 1
+                tentativas += 1
+                continue
+
+            # Nao e parte do text block — registra posicao e avanca
             if i_limpo not in mapa_linha:
                 mapa_linha[i_limpo] = i_orig + 1
             i_orig += 1
             encontrou = True
             break
 
-        if not encontrou or i_limpo not in mapa_linha:
-            mapa_linha[i_limpo] = i_orig + 1
+        if not encontrou and i_limpo not in mapa_linha:
+            mapa_linha[i_limpo] = pos_inicio + 1
 
     def _linha_real(idx_limpo_1based: int) -> int:
         """Converte numero de linha do texto achatado para numero no arquivo original."""
         return mapa_linha.get(idx_limpo_1based - 1, idx_limpo_1based)
 
     # Indice reverso: trecho de codigo -> linha no original
-    # Usado para corrigir bugs detectados por conteudo de linha
+    # Usado para corrigir bugs detectados por conteudo de linha.
+    # Indexa AMBOS: linhas pre-achatar (conteudo original) e linhas pos-achatar
+    # (conteudo achatado), para que text blocks colapsados tambem sejam encontrados.
     indice_conteudo = {}
     for j, orig in enumerate(linhas_antes_achatar):
         s = orig.strip()
         if s and len(s) > 8:
             indice_conteudo[s] = j + 1
+    # Adiciona linhas achatadas apontando para a linha original via mapa_linha
+    for j, limpa in enumerate(linhas_limpas):
+        s = limpa.strip()
+        if s and len(s) > 8 and s not in indice_conteudo:
+            indice_conteudo[s] = mapa_linha.get(j, j + 1)
 
     categoria = classificar(texto_limpo)
 
     erros, avisos = detectar_todos_bugs(linhas_limpas, texto_limpo, caminho_arquivo)
+
+    # detectar_procedure_sem_rt precisa estar ANTES da correcao de linhas
+    erros += detectar_procedure_sem_rt(linhas_limpas)
 
     # Corrige numeros de linha:
     # 1. Tenta achar o trecho exato no original (mais preciso)
@@ -1058,8 +1120,6 @@ def analisar_arquivo(caminho_arquivo):
 
     if categoria == "SEM_CNPJ" and (erros or avisos):
         categoria = "ERRO" if erros else "ATENCAO"
-
-    erros += detectar_procedure_sem_rt(linhas_limpas)
 
     if erros or avisos:
         if categoria == "SEM_CNPJ":

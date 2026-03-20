@@ -1,17 +1,23 @@
 # =============================================================================
-# config.py — Conhecimento de domínio da migração CNPJ alfanumérico
-# Atualize aqui conforme a migração evolui. O restante do código não muda.
+# config.py ï¿½ Conhecimento de domï¿½nio da migraï¿½ï¿½o CNPJ alfanumï¿½rico
+# Atualize aqui conforme a migraï¿½ï¿½o evolui. O restante do cï¿½digo nï¿½o muda.
 # =============================================================================
 
-# Palavras-chave que identificam variáveis/colunas relacionadas a CNPJ
+# Palavras-chave que identificam variï¿½veis/colunas relacionadas a CNPJ
 PALAVRAS_CNPJ = (
     'cnpj', 'cgc', 'cod_part', 'corretora', 'despachante',
-    'courier', 'facc', 'tran', 'terc', 'cons', 'cli', 'for',
+    'courier', 'facc',
+    # Palavras longas (>4 chars) â€” match por substring sem restricao
+    'fornecedor', 'fornec', 'forne', 'forn', 'forcli',
+    'cliente', 'transp',
+    # Palavras curtas (<=4 chars) â€” match exige delimitacao por _ ou inicio/fim
+    # Isso evita falsos positivos como 'formato', 'consulta', 'translate', etc.
+    'tran', 'terc', 'cons', 'cli', 'for',
     'tbm',  # sufixo especial: cgc9_tbm / cgc_tbm_r
 )
 
-# Tabelas que possuem colunas CNPJ (dualidade numérico/alfanumérico)
-# Quando uma dessas tabelas aparece no código, verificar se as colunas CNPJ estão corretas
+# Tabelas que possuem colunas CNPJ (dualidade numï¿½rico/alfanumï¿½rico)
+# Quando uma dessas tabelas aparece no cï¿½digo, verificar se as colunas CNPJ estï¿½o corretas
 TABELAS_DUALIDADE = {
     "BASI_008", "BASI_037", "BASI_041", "BASI_245", "BASI_460", "BASI_572", "BASI_969",
     "CONS_001", "CONS_010", "CONT_030", "COST_001",
@@ -19,7 +25,7 @@ TABELAS_DUALIDADE = {
     "CREC_060", "CREC_070", "CREC_101", "CREC_102", "CREC_150", "CREC_170", "CREC_180", "CREC_180_SIMULA",
     "CREC_200", "CREC_209", "CREC_250", "CREC_251", "CREC_252", "CREC_450", "CREC_563", "CREC_960", "CREC_962",
     "EFIC_012", "EIXO_003", "EMPR_073", "EMPR_090", "ESTQ_400", "ESTQ_405", "EXPT_040", "EXTC_020",
-    "FATU_036", "FATU_052",  # FATU_050 removida — nao tem PK com CNPJ "FATU_070", "FATU_075", "FATU_076", "FATU_120", "FATU_125", "FATU_155", "FATU_157", "FATU_440",
+    "FATU_036", "FATU_052",  # FATU_050 removida ï¿½ nao tem PK com CNPJ "FATU_070", "FATU_075", "FATU_076", "FATU_120", "FATU_125", "FATU_155", "FATU_157", "FATU_440",
     "FATX_070", "FATX_075", "FINA_030", "FINX_030", "FNDC_001", "FNDC_007",
     "HDOC_001", "HDOC_050", "HDOC_060", "HDOC_110", "HDOC_115", "HIST_VOL_01",
     "INTE_055", "INTE_067", "INTE_084", "INTE_305", "INTE_360", "INTE_385", "INTE_406",
@@ -35,7 +41,7 @@ TABELAS_DUALIDADE = {
     "OBRF_700", "OBRF_701", "OBRF_702", "OBRF_709", "OBRF_710", "OBRF_715",
     "OBRF_721", "OBRF_722", "OBRF_725", "OBRF_743", "OBRF_772", "OBRF_783", "OBRF_788",
     "OBRF_810", "OBRF_823", "OBRF_832", "OBRF_851", "OBRF_971",
-    "OPER_284",  # OPER_001 e OPER_TMP removidas — tem regras proprias de migracao
+    "OPER_284",  # OPER_001 e OPER_TMP removidas ï¿½ tem regras proprias de migracao
     "PCPC_012", "PCPC_340", "PCPC_341", "PCPC_343", "PCPF_080", "PCPF_081", "PCPT_016",
     "PEDI_005", "PEDI_010", "PEDI_011", "PEDI_012", "PEDI_013", "PEDI_014", "PEDI_015", "PEDI_028", "PEDI_035",
     "PEDI_055", "PEDI_058", "PEDI_065", "PEDI_067", "PEDI_068", "PEDI_074", "PEDI_084", "PEDI_103", "PEDI_112",
@@ -55,7 +61,7 @@ TABELAS_DUALIDADE = {
     "SUPR_132", "SUPR_180", "SUPR_200", "SUPR_210", "SUPR_440", "SUPR_580",
 }
 
-# Mapeamento de colunas legadas ? novas (para validação cruzada)
+# Mapeamento de colunas legadas ? novas (para validaï¿½ï¿½o cruzada)
 COLUNAS_RENOMEADAS = {
     "cgc_9":              "cgc_r",
     "cgc_4":              "cgc_o",
@@ -66,16 +72,16 @@ COLUNAS_RENOMEADAS = {
     "cli_ped_cgc_cli9":   "cli_ped_cgc_cli_r",
     "cli_ped_cgc_cli4":   "cli_ped_cgc_cli_o",
     # Padrao com sufixo no meio: cgcN_xxx -> cgc_xxx_r/o
-    # cgc9_tbm/cgc4_tbm pertencem a CREC_050 (VARCHAR2 nativo) — nao sao erros
+    # cgc9_tbm/cgc4_tbm pertencem a CREC_050 (VARCHAR2 nativo) ï¿½ nao sao erros
     # "cgc9_tbm": "cgc_tbm_r",  <- removido, CREC_050 e nativa
     # "cgc4_tbm": "cgc_tbm_o",  <- removido, CREC_050 e nativa
 }
 
-# Sufixos legados (numérico) vs novos (varchar)
+# Sufixos legados (numï¿½rico) vs novos (varchar)
 SUFIXOS_LEGADOS = ('_9', '_4', '9', '4')
 SUFIXOS_NOVOS   = ('_r', '_o')
 
-# Extensões de arquivo por tipo
+# Extensï¿½es de arquivo por tipo
 EXTENSOES = {
     "java":     [".java"],
     "forms":    [".fj"],
@@ -90,7 +96,7 @@ IGNORAR_PADROES = [
     "*package-info*"
 ]
 
-# Pastas que DEVEM ser analisadas — so codigo fonte
+# Pastas que DEVEM ser analisadas ï¿½ so codigo fonte
 # Arquivos fora dessas pastas sao ignorados (output, build, etc)
 PASTAS_INCLUIR = {"src", "sources", "batch", "controller", "systextil"}
 
@@ -98,20 +104,20 @@ PASTAS_INCLUIR = {"src", "sources", "batch", "controller", "systextil"}
 PASTAS_EXCLUIR = {"output", "temp", "target", ".git", "build", "node_modules",
                   "webnxj", "unify", "compilation", "ear-contents", "war-contents"}
 
-# Extensoes analisadas — .fx e layout gerado, nao precisa verificar
+# Extensoes analisadas ï¿½ .fx e layout gerado, nao precisa verificar
 EXTENSOES_ANALISAR = {".java", ".fj", ".jsp"}
 
 # Tabelas que ja foram migradas para VARCHAR2 nativo ANTES da migracao CNPJ.
-# Para essas tabelas, colunas CNPJ ja sao String — nao ha dualidade.
+# Para essas tabelas, colunas CNPJ ja sao String ï¿½ nao ha dualidade.
 # O grep_engine e o Claude devem ignorar checks de dualidade para elas.
 TABELAS_NATIVAS_VARCHAR2 = {
     "CREC_050",
 }
 
 # Colunas que pertencem a tabelas nativas VARCHAR2 e nunca devem ser reportadas como erro.
-# Mesmo que apareçam sem o par novo, estao corretas.
+# Mesmo que apareï¿½am sem o par novo, estao corretas.
 COLUNAS_NATIVAS_VARCHAR2 = {
-    # CREC_050 — todas as colunas CNPJ ja sao VARCHAR2 nativo
+    # CREC_050 ï¿½ todas as colunas CNPJ ja sao VARCHAR2 nativo
     # grupo tbm (terceiro banco mandante)
     "cgc9_tbm",
     "cgc4_tbm",
@@ -130,15 +136,15 @@ COLUNAS_NATIVAS_VARCHAR2 = {
 # Tabelas com regras especiais de migracao CNPJ
 # =============================================================================
 
-# OPER_001 — campos genericos, substitui coluna numerica pela alfanumerica (sem duplicar)
+# OPER_001 ï¿½ campos genericos, substitui coluna numerica pela alfanumerica (sem duplicar)
 # Antes: campo_01(NUMBER), campo_02(NUMBER) -> Depois: campo_52(VARCHAR2), campo_53(VARCHAR2)
 TABELAS_OPER001 = {"OPER_001"}
 
-# OPER_TMP — duplica campos pois e usada por Jasper/Crystal que nao serao migrados agora
+# OPER_TMP ï¿½ duplica campos pois e usada por Jasper/Crystal que nao serao migrados agora
 # Antes: int_01, int_02 -> Depois: str_02, str_03, int_01, int_02 (ambos presentes)
 TABELAS_OPERTMP = {"OPER_TMP"}
 
-# RCNB_060 — tabela temporaria, usa campos gemeos com sufixo _STR
+# RCNB_060 ï¿½ tabela temporaria, usa campos gemeos com sufixo _STR
 # nivel_estrutura -> nivel_estrutura_str
 # grupo_estrutura -> grupo_estrutura_str  
 # Se gemeo ocupado, usar nivel_estrutura_str > grupo_... > subgrupo_... > item_...
