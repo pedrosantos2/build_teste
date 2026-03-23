@@ -197,33 +197,35 @@ def _achar(lista, num_linha, bug, tipo, msg):
 
 def _e_bridge_parseint_dto_legado(linha):
     """
-    Detecta ponte explicita de compatibilidade em DTO:
-      dto.<base>9 = Integer.parseInt(dto.<base>_r);
-      dto.<base>4 = Integer.parseInt(dto.<base>_o);
-    Esse padrao e aceito para manter campo legado em paralelo.
+    Detecta ponte explicita de compatibilidade em objetos/DTO:
+      obj.<base>9 = Integer.parseInt(obj.<base>_r);
+      obj.<base>4 = Integer.parseInt(obj.<base>_o);
     """
     m = re.search(
-        r'\bdto\.([a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*Integer\.parseInt\s*\(\s*dto\.([a-zA-Z_][a-zA-Z0-9_]*)\s*\)',
+        r'\b([a-zA-Z_][a-zA-Z0-9_]*)\.([a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*Integer\.parseInt\s*\(\s*(?:\1\.)?([a-zA-Z_][a-zA-Z0-9_]*)\s*\)',
         linha,
         re.IGNORECASE,
     )
     if not m:
         return False, None
 
-    lhs = m.group(1).lower()  # ex: cnpj9
-    rhs = m.group(2).lower()  # ex: cnpj_r
+    obj = m.group(1).lower()
+    lhs = m.group(2).lower()  # ex: cnpj9
+    rhs = m.group(3).lower()  # ex: cnpj_r
 
     if lhs.endswith('9') and rhs.endswith('_r'):
         base_l = lhs[:-1].rstrip('_')
         base_r = rhs[:-2].rstrip('_')
         if base_l == base_r:
-            return True, lhs
+            if _e_coluna_cnpj(base_l) or _e_coluna_cnpj(lhs):
+                return True, lhs
 
     if lhs.endswith('4') and rhs.endswith('_o'):
         base_l = lhs[:-1].rstrip('_')
         base_r = rhs[:-2].rstrip('_')
         if base_l == base_r:
-            return True, lhs
+            if _e_coluna_cnpj(base_l) or _e_coluna_cnpj(lhs):
+                return True, lhs
 
     return False, None
 
@@ -1258,7 +1260,7 @@ def detectar_variavel_java_legada(linhas_limpas, caminho_arquivo=""):
                         avisos,
                         i,
                         "BUG_DTO_BRIDGE_LEGADO",
-                        "AVISO",
+                        "ADVERTENCIA",
                         f"Mapeamento legado detectado: 'dto.{var_name} = Integer.parseInt(dto.{base_bridge}_{sufixo_novo})'. "
                         f"Padrao permitido para compatibilidade, mas manter sob monitoramento (advertencia).",
                     )
@@ -1341,6 +1343,58 @@ def detectar_dto_cnpj9(linhas_limpas):
                 _achar(avisos, i, "BUG_DTO_CNPJ9", "AVISO", msg)
     return avisos
 
+def detectar_implements_cnpj_nao_duplicado(texto_limpo):
+    from collections import defaultdict
+    erros = []
+    
+    if ' implements ' not in texto_limpo and '\nimplements ' not in texto_limpo:
+        return erros
+        
+    method_pattern = re.compile(r'\b([a-zA-Z_]\w*)\s*\(([^)]*)\)\s*(?:throws\s+[^{]+)?\s*\{')
+    metodos = defaultdict(list)
+    
+    for m in method_pattern.finditer(texto_limpo):
+        m_name = m.group(1)
+        if m_name in ['if', 'while', 'for', 'switch', 'catch', 'synchronized', 'else']:
+            continue
+            
+        params_str = m.group(2)
+        idx_match = m.start()
+        num_linha = texto_limpo[:idx_match].count('\n') + 1
+        
+        tem_cnpj = False
+        if params_str.strip():
+            for param in params_str.split(','):
+                param = param.strip()
+                if not param: continue
+                parts = param.split()
+                if len(parts) >= 2:
+                    ptype = parts[-2]
+                    pname = parts[-1]
+                    if 'CNPJ' in ptype or _e_coluna_cnpj(pname):
+                        tem_cnpj = True
+                        break
+                        
+        metodos[m_name].append({
+            "linha": num_linha,
+            "params_str": params_str,
+            "tem_cnpj": tem_cnpj
+        })
+        
+    for m_name, overloads in metodos.items():
+        cnpj_overloads = [ov for ov in overloads if ov["tem_cnpj"]]
+        if len(cnpj_overloads) == 1:
+            ov = cnpj_overloads[0]
+            _achar(
+                erros, 
+                ov["linha"], 
+                "BUG_IMPLEMENTS_NAO_DUPLICADO", 
+                "ERRO", 
+                f"Classe com 'implements'. O metodo '{m_name}' possui parametro CNPJ mas nao foi duplicado (esperado overloads legado/novo para manter as assinaturas)."
+            )
+            
+    return erros
+
 # ============================================================
 # ORQUESTRADOR DE BUGS
 # ============================================================
@@ -1371,6 +1425,7 @@ def detectar_todos_bugs(linhas_limpas, texto_limpo, caminho_arquivo=""):
     erros  += erros_variavel
     avisos += avisos_variavel
     avisos += detectar_dto_cnpj9(linhas_limpas)
+    erros  += detectar_implements_cnpj_nao_duplicado(texto_limpo)
 
     erros.sort(key=lambda x: x.get("linha", 0))
     avisos.sort(key=lambda x: x.get("linha", 0))

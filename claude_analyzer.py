@@ -68,11 +68,13 @@ IMPORTANTE:
   correcao e alterar para campo descricao (String) pois CNPJ agora e VARCHAR2.
   Nem todo campo_numerico e CNPJ — so os que extendem widgets CNPJ, recebem CNPJ.ZEROS
   ou tem SQL com colunas CNPJ. campo_numerico* sem relacao CNPJ e FALSO_POSITIVO
+- IMPORTANTE: Se o candidate type for BUG_DTO_BRIDGE_LEGADO ou BUG_VARIAVEL_LEGADA_DEPRECATED, a severidade DEVE ser OBRIGATORIAMENTE **ADVERTENCIA** (nunca CRITICO), pois e um padrao aceito ou em depreciacao.
 
 Para cada item:
 1. Confirme se e bug real ou falso positivo usando APENAS o contexto fornecido
 2. Classificacao de severidade por pre_existente:
-   - pre_existente=false + qualquer bug CNPJ → CRITICO
+   - Se for BUG_DTO_BRIDGE_LEGADO ou BUG_VARIAVEL_LEGADA_DEPRECATED → ADVERTENCIA.
+   - pre_existente=false + qualquer outro bug CNPJ → CRITICO
    - pre_existente=true + bug de codigo CNPJ legado (cgc_9, cgc_4, getInt em _r/_o, etc) → CRITICO (arquivo nao migrado)
    - pre_existente=true + bug estrutural SEM relacao com CNPJ (mismatch de placeholders SQL, logica AND/OR errada, NPE generico, etc) → ADVERTENCIA
 3. Sugira a correcao
@@ -143,6 +145,13 @@ CANDIDATOS ({len(hits_lote)} itens):
     raw = raw.strip()
     try:
         resultado = json.loads(raw)
+        
+        # FINAL OVERRIDE: Garantir que Claude nunca retorne como CRITICO
+        if "bugs" in resultado:
+            for b in resultado["bugs"]:
+                if b.get("candidate") in ["BUG_DTO_BRIDGE_LEGADO", "BUG_VARIAVEL_LEGADA_DEPRECATED"]:
+                    b["severidade"] = "ADVERTENCIA"
+                    
     except json.JSONDecodeError as e:
         print(f"      ERRO parse JSON: {e}")
         print(f"      Raw (primeiros 500 chars): {raw[:500]!r}")
