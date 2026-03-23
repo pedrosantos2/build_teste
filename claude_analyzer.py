@@ -11,7 +11,7 @@ from typing import List, Dict, Any
 
 import anthropic
 
-LOTE_MAXIMO = 50  # itens por chamada — ajustar se necessario
+LOTE_MAXIMO = 20  # Reduzido de 50 para 20 para evitar truncamento de JSON (max_tokens)
 
 
 def _carregar_skill(skill_path: str) -> str:
@@ -82,6 +82,7 @@ Para cada item:
    - Nao sugerir Integer.parseInt, conversao de tipo ou casting em correcoes de dualidade
    - Para BUG_LEGADO em .fj: correcao e substituir coluna legada pela nova no EXEC SQL (ex: cgc_9 -> cgc_r)
    - Para CAMPO_NUMERICO_CNPJ: correcao e trocar campo_numerico* por descricao* (String) no FIELD e em todas as referencias do formulario
+   - SEJA CONCISO nas descricoes e correcoes (max 1 a 2 frases).
 
 REGRA CRITICA: Retorne APENAS bugs para os candidatos listados abaixo.
 NAO adicione bugs para arquivos ou colunas que nao estao nos candidatos.
