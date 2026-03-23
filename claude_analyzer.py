@@ -68,14 +68,14 @@ IMPORTANTE:
   correcao e alterar para campo descricao (String) pois CNPJ agora e VARCHAR2.
   Nem todo campo_numerico e CNPJ — so os que extendem widgets CNPJ, recebem CNPJ.ZEROS
   ou tem SQL com colunas CNPJ. campo_numerico* sem relacao CNPJ e FALSO_POSITIVO
-- IMPORTANTE: Se o candidate type for BUG_DTO_BRIDGE_LEGADO ou BUG_VARIAVEL_LEGADA_DEPRECATED, a severidade DEVE ser OBRIGATORIAMENTE **ADVERTENCIA** (nunca CRITICO), pois e um padrao aceito ou em depreciacao.
+- IMPORTANTE: Se o candidate type for BUG_DTO_BRIDGE_LEGADO, BUG_VARIAVEL_LEGADA ou BUG_VARIAVEL_LEGADA_DEPRECATED, a severidade DEVE ser OBRIGATORIAMENTE **ADVERTENCIA** (nunca CRITICO), pois e um padrao aceito ou em depreciacao.
 
 Para cada item:
 1. Confirme se e bug real ou falso positivo usando APENAS o contexto fornecido
 2. Classificacao de severidade por pre_existente:
-   - Se for BUG_DTO_BRIDGE_LEGADO ou BUG_VARIAVEL_LEGADA_DEPRECATED → ADVERTENCIA.
+   - Se for BUG_DTO_BRIDGE_LEGADO, BUG_VARIAVEL_LEGADA ou BUG_VARIAVEL_LEGADA_DEPRECATED → ADVERTENCIA.
    - pre_existente=false + qualquer outro bug CNPJ → CRITICO
-   - pre_existente=true + bug de codigo CNPJ legado (cgc_9, cgc_4, getInt em _r/_o, etc) → CRITICO (arquivo nao migrado)
+   - pre_existente=true + bug de codigo CNPJ legado (cgc_9, cgc_4, parseInt em _r, getInt em _r/_o, etc) → ADVERTENCIA (arquivo nao migrado)
    - pre_existente=true + bug estrutural SEM relacao com CNPJ (mismatch de placeholders SQL, logica AND/OR errada, NPE generico, etc) → ADVERTENCIA
 3. Sugira a correcao
    - Para bugs de dualidade (BUG_1): diga apenas que precisa duplicar a coluna, sem sugerir Integer.parseInt ou conversao numerica
@@ -149,7 +149,7 @@ CANDIDATOS ({len(hits_lote)} itens):
         # FINAL OVERRIDE: Garantir que Claude nunca retorne como CRITICO
         if "bugs" in resultado:
             for b in resultado["bugs"]:
-                if b.get("candidate") in ["BUG_DTO_BRIDGE_LEGADO", "BUG_VARIAVEL_LEGADA_DEPRECATED"]:
+                if b.get("candidate") in ["BUG_DTO_BRIDGE_LEGADO", "BUG_VARIAVEL_LEGADA", "BUG_VARIAVEL_LEGADA_DEPRECATED"]:
                     b["severidade"] = "ADVERTENCIA"
                     
     except json.JSONDecodeError as e:

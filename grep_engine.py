@@ -494,15 +494,15 @@ def detectar_bug3(linhas_limpas):
 
 def detectar_bug5(linhas_limpas):
     """BUG 5 -- Integer.parseInt() em campo _R/_O."""
-    erros = []
+    avisos = []
     pat = re.compile(r'Integer\.parseInt\s*\([^)]*\.get[RrOo]\(\)')
     for i, linha in enumerate(linhas_limpas, 1):
         if _linha_e_duplicata_make(linha):
             continue
         if pat.search(linha):
-            _achar(erros, i, "BUG_5", "ERRO",
+            _achar(avisos, i, "BUG_5", "ADVERTENCIA",
                    "Integer.parseInt() em raiz/ordem: _R/_O podem conter letras -- use CNPJ.parse() ou getString()")
-    return erros
+    return avisos
 
 def detectar_bug6(linhas_limpas):
     """BUG 6 -- setInt/setLong/setString com tipo errado."""
@@ -1313,7 +1313,7 @@ def detectar_variavel_java_legada(linhas_limpas, caminho_arquivo=""):
                         msg = (f"Variavel/referencia Java com nomenclatura legado '{var_name}' (9 ou 4). "
                                f"Mude para tipo String com sufixo _r/_o ou unifique para o objeto CNPJ.")
                     
-                    _achar(erros, i, "BUG_VARIAVEL_LEGADA", "ERRO", msg)
+                    _achar(avisos, i, "BUG_VARIAVEL_LEGADA", "ADVERTENCIA", msg)
     return erros, avisos
 
 # ------------------------------------------------------------
@@ -1410,7 +1410,7 @@ def detectar_todos_bugs(linhas_limpas, texto_limpo, caminho_arquivo=""):
     erros  += detectar_getint_campo_novo(linhas_limpas)
     erros  += detectar_bug3(linhas_limpas)
     erros  += detectar_equals_nullable(linhas_limpas)
-    erros  += detectar_bug5(linhas_limpas)
+    avisos += detectar_bug5(linhas_limpas)
     erros  += detectar_bug6(linhas_limpas)
     erros  += detectar_bug10(linhas_limpas)
     avisos += detectar_bug8(linhas_limpas)
