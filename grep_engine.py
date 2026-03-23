@@ -1170,22 +1170,35 @@ def detectar_variavel_java_legada(linhas_limpas, caminho_arquivo=""):
     """
     BUG_VARIAVEL_LEGADA -- Detecta variaveis Java no codigo com nomenclatura de CNPJ NUMBER legacy.
     Ex: int cgc9; String forne4; private Long cli_9;
-    (O digito '2' nao entra pois costuma ser mantido como inteiro/byte verificador)
+    (O digito '2' nao entra no fluxo geral pois costuma ser mantido como inteiro/byte verificador)
     Para servicos de banco e API (cnpj-function/cnpj-bo), variaveis legadas sao 
     permitidas CASO a sua respectiva versao nova (_r/_o) tambem exista no arquivo.
+    Nesses workspaces, quando existir objeto CNPJ correspondente (ex.: cgcforForne),
+    os campos numericos legados (9/4/2) devem ser tratados como DEPRECATED (AVISO).
     """
     erros = []
+    avisos = []
     
     path_lower = caminho_arquivo.lower()
     permite_duplicidade = ("cnpj-function" in path_lower or "cnpj-bo" in path_lower)
     
     todas_palavras = set()
+    campos_cnpj_declarados = set()
+    campos_deprecated_reportados = set()
     if permite_duplicidade:
         texto_completo = " ".join(linhas_limpas).lower()
         import re as re_temp
         todas_palavras = set(re_temp.findall(r'[a-z0-9_]+', texto_completo))
 
-    pat = re.compile(r'\b([a-zA-Z_][a-zA-Z0-9_]*?_?[94])\b')
+        # Campos declarados com objeto CNPJ (ex.: public CNPJ cgcforForne;)
+        pat_cnpj_decl = re.compile(r'\b(?:systextil\.)?CNPJ\s+([a-zA-Z_][a-zA-Z0-9_]*)\b')
+        campos_cnpj_declarados = {
+            m.group(1).lower()
+            for m in pat_cnpj_decl.finditer("\n".join(linhas_limpas))
+        }
+
+    sufixos = "942" if permite_duplicidade else "94"
+    pat = re.compile(rf'\b([a-zA-Z_][a-zA-Z0-9_]*?_?[{sufixos}])\b')
     for i, linha in enumerate(linhas_limpas, 1):
         if _linha_e_duplicata_make(linha):
             continue
@@ -1198,10 +1211,33 @@ def detectar_variavel_java_legada(linhas_limpas, caminho_arquivo=""):
             if _e_coluna_cnpj(var_name):
                 # Se permite duplicidade, verifica se a variante (_r / _o) existe no mesmo arquivo
                 se_perdoado = False
+                base = var_name[:-1]
+                if base.endswith('_'):
+                    base = base[:-1]
+
                 if permite_duplicidade:
-                    base = var_name[:-1]
-                    if base.endswith('_'):
-                        base = base[:-1]
+                    # Regra nova para cnpj-function/cnpj-bo:
+                    # se ja existe objeto CNPJ correspondente, marcar legado numerico como deprecated.
+                    tem_cnpj_correspondente = base in campos_cnpj_declarados
+                    if tem_cnpj_correspondente:
+                        se_perdoado = True
+
+                        # Reporta apenas em declaracao numerica (evita ruido em referencias/uso)
+                        if var_name not in campos_deprecated_reportados:
+                            if re.search(
+                                rf'\b(?:int|integer|long|short|byte)\s+{re.escape(m.group(1))}\b',
+                                linha_sem_aspas,
+                                re.IGNORECASE,
+                            ):
+                                _achar(
+                                    avisos,
+                                    i,
+                                    "BUG_VARIAVEL_LEGADA_DEPRECATED",
+                                    "AVISO",
+                                    f"Campo numerico legado '{var_name}' tem CNPJ correspondente '{base}'. "
+                                    f"Marque como @Deprecated(forRemoval = true) com JavaDoc @deprecated Use {{@link #{base}}}.",
+                                )
+                                campos_deprecated_reportados.add(var_name)
                     
                     if var_name.endswith('9'):
                         if (base + '_r') in todas_palavras or (base + 'r') in todas_palavras:
@@ -1219,7 +1255,28 @@ def detectar_variavel_java_legada(linhas_limpas, caminho_arquivo=""):
                                f"Mude para tipo String com sufixo _r/_o ou unifique para o objeto CNPJ.")
                     
                     _achar(erros, i, "BUG_VARIAVEL_LEGADA", "ERRO", msg)
-    return erros
+    return erros, avisos
+
+# ------------------------------------------------------------
+# DETECTOR: dto.cnpj9 — advertencia para verificacao manual
+# ------------------------------------------------------------
+
+def detectar_dto_cnpj9(linhas_limpas):
+    """
+    Detecta acessos do tipo dto.cnpj9, dto.cgc9, dto.fornecedor9, dto.cliente4, etc.
+    Marca como AVISO (advertencia) para que o usuario verifique se precisa
+    continuar assim ou se deve alterar para a versao String (_r/_o).
+    """
+    avisos = []
+    pat = re.compile(r'\bdto\.([a-zA-Z_][a-zA-Z0-9_]*?_?[94])\b', re.IGNORECASE)
+    for i, linha in enumerate(linhas_limpas, 1):
+        for m in pat.finditer(linha):
+            var_name = m.group(1).lower()
+            if _e_coluna_cnpj(var_name):
+                msg = (f"Acesso 'dto.{m.group(1)}' usa nomenclatura legado (sufixo 9/4). "
+                       f"Verifique se precisa continuar assim ou se deve alterar para _r/_o.")
+                _achar(avisos, i, "BUG_DTO_CNPJ9", "AVISO", msg)
+    return avisos
 
 # ============================================================
 # ORQUESTRADOR DE BUGS
@@ -1244,7 +1301,13 @@ def detectar_todos_bugs(linhas_limpas, texto_limpo, caminho_arquivo=""):
     erros  += detectar_cnpj_legado_em_exec_sql_fj(linhas_limpas, nome_arquivo=caminho_arquivo)
     erros  += detectar_campo_numerico_cnpj_fj(linhas_limpas, nome_arquivo=caminho_arquivo)
     erros  += detectar_init_field_fj(linhas_limpas, nome_arquivo=caminho_arquivo)
-    erros  += detectar_variavel_java_legada(linhas_limpas, caminho_arquivo=caminho_arquivo)
+    erros_variavel, avisos_variavel = detectar_variavel_java_legada(
+        linhas_limpas,
+        caminho_arquivo=caminho_arquivo,
+    )
+    erros  += erros_variavel
+    avisos += avisos_variavel
+    avisos += detectar_dto_cnpj9(linhas_limpas)
 
     erros.sort(key=lambda x: x.get("linha", 0))
     avisos.sort(key=lambda x: x.get("linha", 0))
