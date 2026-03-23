@@ -940,7 +940,11 @@ def detectar_cnpj_legado_em_sql(texto_limpo):
 def detectar_init_field_fj(linhas_limpas, nome_arquivo=""):
     """
     Verifica campos CNPJ em arquivos .fj que tem INIT FIELD sem super.initField().
-    So analisa FIELDs que sao CNPJ — por nome ou por widget que extendem.
+        So analisa FIELDs que sao CNPJ pelo "extends" do widget.
+        Critério: extends contendo
+            - systextil.widgets.Fornecedor
+            - systextil.widgets.cliente
+            - ou qualquer nome contendo "cnpj"
     """
     if not nome_arquivo.endswith(".fj"):
         return []
@@ -951,7 +955,8 @@ def detectar_init_field_fj(linhas_limpas, nome_arquivo=""):
     pat_init   = re.compile(r'\bINIT\s+FIELD\b', re.IGNORECASE)
     pat_super  = re.compile(r'super\.initField\s*\(\s*\)', re.IGNORECASE)
     pat_widget_cnpj = re.compile(
-        r'systextil\.widgets\.cliente\.[ROD]$', re.IGNORECASE
+        r'(?:systextil\.widgets\.fornecedor|systextil\.widgets\.cliente|cnpj)',
+        re.IGNORECASE,
     )
 
     i = 0
@@ -964,11 +969,9 @@ def detectar_init_field_fj(linhas_limpas, nome_arquivo=""):
             nome_field = m_field.group(1).lower()
             widget     = m_field.group(2)
 
-            # Verifica se e campo CNPJ: por widget OU por nome com sufixo _r/_o/_2
-            # Apenas _e_coluna_cnpj nao basta — 'tipos_forn' contem 'forn' mas nao e CNPJ
-            e_cnpj_widget = bool(pat_widget_cnpj.search(widget))
-            e_cnpj_sufixo = bool(re.search(r'_[ro2]$', nome_field))
-            e_cnpj = e_cnpj_widget or (e_cnpj_sufixo and _e_coluna_cnpj(nome_field))
+            # Verifica se e campo CNPJ SOMENTE pelo extends do widget.
+            # Nao usa heuristica por sufixo do nome para evitar falso positivo.
+            e_cnpj = bool(pat_widget_cnpj.search(widget))
 
             if e_cnpj:
                 # Coleta o bloco do FIELD (ate fechar as chaves)
