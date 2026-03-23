@@ -5,6 +5,7 @@
 
 import json
 import re
+import time
 from pathlib import Path
 from typing import List, Dict, Any
 
@@ -175,21 +176,34 @@ def analisar(
 
     for i, lote in enumerate(lotes, 1):
         print(f"      Lote {i}/{total_lotes} ({len(lote)} itens)...")
-        try:
-            resultado_lote, usage = _chamar_api(
-                client, modulo, lote, skill, exemplos, i, total_lotes
-            )
-            todos_bugs.extend(resultado_lote.get("bugs", []))
-            usage_total["input_tokens"]          += usage.input_tokens
-            usage_total["output_tokens"]         += usage.output_tokens
-            usage_total["cache_creation_tokens"] += getattr(usage, "cache_creation_input_tokens", 0)
-            usage_total["cache_read_tokens"]     += getattr(usage, "cache_read_input_tokens", 0)
-        except json.JSONDecodeError as e:
-            print(f"      AVISO: lote {i} retornou JSON invalido ({e}) — pulando")
-            continue
-        except Exception as e:
-            print(f"      AVISO: lote {i} falhou ({e}) — pulando")
-            continue
+        tentativas = 0
+        while tentativas < 5:
+            try:
+                resultado_lote, usage = _chamar_api(
+                    client, modulo, lote, skill, exemplos, i, total_lotes
+                )
+                todos_bugs.extend(resultado_lote.get("bugs", []))
+                usage_total["input_tokens"]          += usage.input_tokens
+                usage_total["output_tokens"]         += usage.output_tokens
+                usage_total["cache_creation_tokens"] += getattr(usage, "cache_creation_input_tokens", 0)
+                usage_total["cache_read_tokens"]     += getattr(usage, "cache_read_input_tokens", 0)
+                break  # Sucesso, sai do loop de tentativas
+            except json.JSONDecodeError as e:
+                print(f"      AVISO: lote {i} retornou JSON invalido ({e}) — pulando")
+                break  # JSON error indica erro de sintaxe do modelo, pulamos
+            except Exception as e:
+                msg = str(e).lower()
+                if "429" in msg or "rate_limit" in msg or "rate limit" in msg:
+                    espera = 20 * (2 ** tentativas)
+                    print(f"      [RATE LIMIT] Limite excedido. Aguardando {espera}s para retentar (tentativa {tentativas+1}/5)...")
+                    time.sleep(espera)
+                    tentativas += 1
+                else:
+                    print(f"      AVISO: lote {i} falhou ({e}) — pulando")
+                    break
+        
+        if tentativas == 5:
+            print(f"      ERRO: Lote {i} abortado apos 5 tentativas de Rate Limit.")
 
     # Consolida resumo
     resumo = {

@@ -1170,9 +1170,10 @@ def detectar_variavel_java_legada(linhas_limpas):
     """
     BUG_VARIAVEL_LEGADA -- Detecta variaveis Java no codigo com nomenclatura de CNPJ NUMBER legacy.
     Ex: int cgc9; String forne4; private Long cli_9;
+    (O digito '2' nao entra pois costuma ser mantido como inteiro/byte verificador)
     """
     erros = []
-    pat = re.compile(r'\b([a-zA-Z_][a-zA-Z0-9_]*?_?[942])\b')
+    pat = re.compile(r'\b([a-zA-Z_][a-zA-Z0-9_]*?_?[94])\b')
     for i, linha in enumerate(linhas_limpas, 1):
         if _linha_e_duplicata_make(linha):
             continue
@@ -1184,7 +1185,7 @@ def detectar_variavel_java_legada(linhas_limpas):
             var_name = m.group(1).lower()
             if _e_coluna_cnpj(var_name):
                 _achar(erros, i, "BUG_VARIAVEL_LEGADA", "ERRO",
-                       f"Variavel/referencia Java com nomenclatura legado '{var_name}'. "
+                       f"Variavel/referencia Java com nomenclatura legado '{var_name}' (9 ou 4). "
                        f"Mude para tipo String com sufixo _r/_o ou unifique para o objeto CNPJ.")
     return erros
 
