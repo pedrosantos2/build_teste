@@ -1166,13 +1166,25 @@ def detectar_campo_numerico_cnpj_fj(linhas_limpas, nome_arquivo=""):
     return erros
 
 
-def detectar_variavel_java_legada(linhas_limpas):
+def detectar_variavel_java_legada(linhas_limpas, caminho_arquivo=""):
     """
     BUG_VARIAVEL_LEGADA -- Detecta variaveis Java no codigo com nomenclatura de CNPJ NUMBER legacy.
     Ex: int cgc9; String forne4; private Long cli_9;
     (O digito '2' nao entra pois costuma ser mantido como inteiro/byte verificador)
+    Para servicos de banco e API (cnpj-function/cnpj-bo), variaveis legadas sao 
+    permitidas CASO a sua respectiva versao nova (_r/_o) tambem exista no arquivo.
     """
     erros = []
+    
+    path_lower = caminho_arquivo.lower()
+    permite_duplicidade = ("cnpj-function" in path_lower or "cnpj-bo" in path_lower)
+    
+    todas_palavras = set()
+    if permite_duplicidade:
+        texto_completo = " ".join(linhas_limpas).lower()
+        import re as re_temp
+        todas_palavras = set(re_temp.findall(r'[a-z0-9_]+', texto_completo))
+
     pat = re.compile(r'\b([a-zA-Z_][a-zA-Z0-9_]*?_?[94])\b')
     for i, linha in enumerate(linhas_limpas, 1):
         if _linha_e_duplicata_make(linha):
@@ -1184,9 +1196,29 @@ def detectar_variavel_java_legada(linhas_limpas):
         for m in pat.finditer(linha_sem_aspas):
             var_name = m.group(1).lower()
             if _e_coluna_cnpj(var_name):
-                _achar(erros, i, "BUG_VARIAVEL_LEGADA", "ERRO",
-                       f"Variavel/referencia Java com nomenclatura legado '{var_name}' (9 ou 4). "
-                       f"Mude para tipo String com sufixo _r/_o ou unifique para o objeto CNPJ.")
+                # Se permite duplicidade, verifica se a variante (_r / _o) existe no mesmo arquivo
+                se_perdoado = False
+                if permite_duplicidade:
+                    base = var_name[:-1]
+                    if base.endswith('_'):
+                        base = base[:-1]
+                    
+                    if var_name.endswith('9'):
+                        if (base + '_r') in todas_palavras or (base + 'r') in todas_palavras:
+                            se_perdoado = True
+                    elif var_name.endswith('4'):
+                        if (base + '_o') in todas_palavras or (base + 'o') in todas_palavras:
+                            se_perdoado = True
+                
+                if not se_perdoado:
+                    if permite_duplicidade:
+                        msg = (f"Variavel/referencia Java '{var_name}' esta sem duplicidade correspondente. "
+                               f"Em cnpj-function/cnpj-bo, e exigido declarar também a versão String (_r/_o) ou unificar.")
+                    else:
+                        msg = (f"Variavel/referencia Java com nomenclatura legado '{var_name}' (9 ou 4). "
+                               f"Mude para tipo String com sufixo _r/_o ou unifique para o objeto CNPJ.")
+                    
+                    _achar(erros, i, "BUG_VARIAVEL_LEGADA", "ERRO", msg)
     return erros
 
 # ============================================================
@@ -1212,7 +1244,7 @@ def detectar_todos_bugs(linhas_limpas, texto_limpo, caminho_arquivo=""):
     erros  += detectar_cnpj_legado_em_exec_sql_fj(linhas_limpas, nome_arquivo=caminho_arquivo)
     erros  += detectar_campo_numerico_cnpj_fj(linhas_limpas, nome_arquivo=caminho_arquivo)
     erros  += detectar_init_field_fj(linhas_limpas, nome_arquivo=caminho_arquivo)
-    erros  += detectar_variavel_java_legada(linhas_limpas)
+    erros  += detectar_variavel_java_legada(linhas_limpas, caminho_arquivo=caminho_arquivo)
 
     erros.sort(key=lambda x: x.get("linha", 0))
     avisos.sort(key=lambda x: x.get("linha", 0))
