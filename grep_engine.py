@@ -262,11 +262,14 @@ def detectar_bug1(texto_limpo):
                 m_table = re.search(r'(?i)INSERT\s+INTO\s+([A-Z0-9_]+)', sql)
                 if m_table:
                     tabela = m_table.group(1).upper()
-                    if tabela not in TABELAS_DUALIDADE:
+                    # Tabela ja e VARCHAR2 nativo — nunca precisa de dualidade
+                    if tabela in TABELAS_NATIVAS_VARCHAR2:
                         i += 1
                         continue
-                    # Tabela ja e VARCHAR2 nativo — nao precisa de dualidade
-                    if tabela in TABELAS_NATIVAS_VARCHAR2:
+                    # So verifica dualidade se a tabela tem pares definidos no CSV
+                    # ou esta na lista TABELAS_DUALIDADE (fallback para tabelas sem CSV)
+                    tem_pares = tabela in PARES_PK_POR_TABELA
+                    if not tem_pares and tabela not in TABELAS_DUALIDADE:
                         i += 1
                         continue
 

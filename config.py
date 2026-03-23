@@ -1,23 +1,23 @@
 # =============================================================================
-# config.py ÔøΩ Conhecimento de domÔøΩnio da migraÔøΩÔøΩo CNPJ alfanumÔøΩrico
-# Atualize aqui conforme a migraÔøΩÔøΩo evolui. O restante do cÔøΩdigo nÔøΩo muda.
+# config.py ù Conhecimento de domùnio da migraùùo CNPJ alfanumùrico
+# Atualize aqui conforme a migraùùo evolui. O restante do cùdigo nùo muda.
 # =============================================================================
 
-# Palavras-chave que identificam variÔøΩveis/colunas relacionadas a CNPJ
+# Palavras-chave que identificam variùveis/colunas relacionadas a CNPJ
 PALAVRAS_CNPJ = (
     'cnpj', 'cgc', 'cod_part', 'corretora', 'despachante',
     'courier', 'facc',
-    # Palavras longas (>4 chars) ‚Äî match por substring sem restricao
+    # Palavras longas (>4 chars) ó match por substring sem restricao
     'fornecedor', 'fornec', 'forne', 'forn', 'forcli',
     'cliente', 'transp',
-    # Palavras curtas (<=4 chars) ‚Äî match exige delimitacao por _ ou inicio/fim
+    # Palavras curtas (<=4 chars) ó match exige delimitacao por _ ou inicio/fim
     # Isso evita falsos positivos como 'formato', 'consulta', 'translate', etc.
     'tran', 'terc', 'cons', 'cli', 'for',
     'tbm',  # sufixo especial: cgc9_tbm / cgc_tbm_r
 )
 
-# Tabelas que possuem colunas CNPJ (dualidade numÔøΩrico/alfanumÔøΩrico)
-# Quando uma dessas tabelas aparece no cÔøΩdigo, verificar se as colunas CNPJ estÔøΩo corretas
+# Tabelas que possuem colunas CNPJ (dualidade numùrico/alfanumùrico)
+# Quando uma dessas tabelas aparece no cùdigo, verificar se as colunas CNPJ estùo corretas
 TABELAS_DUALIDADE = {
     "BASI_008", "BASI_037", "BASI_041", "BASI_245", "BASI_460", "BASI_572", "BASI_969",
     "CONS_001", "CONS_010", "CONT_030", "COST_001",
@@ -25,7 +25,7 @@ TABELAS_DUALIDADE = {
     "CREC_060", "CREC_070", "CREC_101", "CREC_102", "CREC_150", "CREC_170", "CREC_180", "CREC_180_SIMULA",
     "CREC_200", "CREC_209", "CREC_250", "CREC_251", "CREC_252", "CREC_450", "CREC_563", "CREC_960", "CREC_962",
     "EFIC_012", "EIXO_003", "EMPR_073", "EMPR_090", "ESTQ_400", "ESTQ_405", "EXPT_040", "EXTC_020",
-    "FATU_036", "FATU_052",  # FATU_050 removida ÔøΩ nao tem PK com CNPJ "FATU_070", "FATU_075", "FATU_076", "FATU_120", "FATU_125", "FATU_155", "FATU_157", "FATU_440",
+    "FATU_036", "FATU_052", "FATU_070", "FATU_075", "FATU_076", "FATU_120", "FATU_125", "FATU_155", "FATU_157", "FATU_440",  # FATU_050 removida ù nao tem PK com CNPJ "FATU_070", "FATU_075", "FATU_076", "FATU_120", "FATU_125", "FATU_155", "FATU_157", "FATU_440",
     "FATX_070", "FATX_075", "FINA_030", "FINX_030", "FNDC_001", "FNDC_007",
     "HDOC_001", "HDOC_050", "HDOC_060", "HDOC_110", "HDOC_115", "HIST_VOL_01",
     "INTE_055", "INTE_067", "INTE_084", "INTE_305", "INTE_360", "INTE_385", "INTE_406",
@@ -41,7 +41,7 @@ TABELAS_DUALIDADE = {
     "OBRF_700", "OBRF_701", "OBRF_702", "OBRF_709", "OBRF_710", "OBRF_715",
     "OBRF_721", "OBRF_722", "OBRF_725", "OBRF_743", "OBRF_772", "OBRF_783", "OBRF_788",
     "OBRF_810", "OBRF_823", "OBRF_832", "OBRF_851", "OBRF_971",
-    "OPER_284",  # OPER_001 e OPER_TMP removidas ÔøΩ tem regras proprias de migracao
+    "OPER_284",  # OPER_001 e OPER_TMP removidas ù tem regras proprias de migracao
     "PCPC_012", "PCPC_340", "PCPC_341", "PCPC_343", "PCPF_080", "PCPF_081", "PCPT_016",
     "PEDI_005", "PEDI_010", "PEDI_011", "PEDI_012", "PEDI_013", "PEDI_014", "PEDI_015", "PEDI_028", "PEDI_035",
     "PEDI_055", "PEDI_058", "PEDI_065", "PEDI_067", "PEDI_068", "PEDI_074", "PEDI_084", "PEDI_103", "PEDI_112",
@@ -61,7 +61,7 @@ TABELAS_DUALIDADE = {
     "SUPR_132", "SUPR_180", "SUPR_200", "SUPR_210", "SUPR_440", "SUPR_580",
 }
 
-# Mapeamento de colunas legadas ? novas (para validaÔøΩÔøΩo cruzada)
+# Mapeamento de colunas legadas ? novas (para validaùùo cruzada)
 COLUNAS_RENOMEADAS = {
     "cgc_9":              "cgc_r",
     "cgc_4":              "cgc_o",
@@ -72,16 +72,16 @@ COLUNAS_RENOMEADAS = {
     "cli_ped_cgc_cli9":   "cli_ped_cgc_cli_r",
     "cli_ped_cgc_cli4":   "cli_ped_cgc_cli_o",
     # Padrao com sufixo no meio: cgcN_xxx -> cgc_xxx_r/o
-    # cgc9_tbm/cgc4_tbm pertencem a CREC_050 (VARCHAR2 nativo) ÔøΩ nao sao erros
+    # cgc9_tbm/cgc4_tbm pertencem a CREC_050 (VARCHAR2 nativo) ù nao sao erros
     # "cgc9_tbm": "cgc_tbm_r",  <- removido, CREC_050 e nativa
     # "cgc4_tbm": "cgc_tbm_o",  <- removido, CREC_050 e nativa
 }
 
-# Sufixos legados (numÔøΩrico) vs novos (varchar)
+# Sufixos legados (numùrico) vs novos (varchar)
 SUFIXOS_LEGADOS = ('_9', '_4', '9', '4')
 SUFIXOS_NOVOS   = ('_r', '_o')
 
-# ExtensÔøΩes de arquivo por tipo
+# Extensùes de arquivo por tipo
 EXTENSOES = {
     "java":     [".java"],
     "forms":    [".fj"],
@@ -96,7 +96,7 @@ IGNORAR_PADROES = [
     "*package-info*"
 ]
 
-# Pastas que DEVEM ser analisadas ÔøΩ so codigo fonte
+# Pastas que DEVEM ser analisadas ù so codigo fonte
 # Arquivos fora dessas pastas sao ignorados (output, build, etc)
 PASTAS_INCLUIR = {"src", "sources", "batch", "controller", "systextil"}
 
@@ -104,20 +104,20 @@ PASTAS_INCLUIR = {"src", "sources", "batch", "controller", "systextil"}
 PASTAS_EXCLUIR = {"output", "temp", "target", ".git", "build", "node_modules",
                   "webnxj", "unify", "compilation", "ear-contents", "war-contents"}
 
-# Extensoes analisadas ÔøΩ .fx e layout gerado, nao precisa verificar
+# Extensoes analisadas ù .fx e layout gerado, nao precisa verificar
 EXTENSOES_ANALISAR = {".java", ".fj", ".jsp"}
 
 # Tabelas que ja foram migradas para VARCHAR2 nativo ANTES da migracao CNPJ.
-# Para essas tabelas, colunas CNPJ ja sao String ÔøΩ nao ha dualidade.
+# Para essas tabelas, colunas CNPJ ja sao String ù nao ha dualidade.
 # O grep_engine e o Claude devem ignorar checks de dualidade para elas.
 TABELAS_NATIVAS_VARCHAR2 = {
     "CREC_050",
 }
 
 # Colunas que pertencem a tabelas nativas VARCHAR2 e nunca devem ser reportadas como erro.
-# Mesmo que apareÔøΩam sem o par novo, estao corretas.
+# Mesmo que apareùam sem o par novo, estao corretas.
 COLUNAS_NATIVAS_VARCHAR2 = {
-    # CREC_050 ÔøΩ todas as colunas CNPJ ja sao VARCHAR2 nativo
+    # CREC_050 ù todas as colunas CNPJ ja sao VARCHAR2 nativo
     # grupo tbm (terceiro banco mandante)
     "cgc9_tbm",
     "cgc4_tbm",
@@ -136,15 +136,15 @@ COLUNAS_NATIVAS_VARCHAR2 = {
 # Tabelas com regras especiais de migracao CNPJ
 # =============================================================================
 
-# OPER_001 ÔøΩ campos genericos, substitui coluna numerica pela alfanumerica (sem duplicar)
+# OPER_001 ù campos genericos, substitui coluna numerica pela alfanumerica (sem duplicar)
 # Antes: campo_01(NUMBER), campo_02(NUMBER) -> Depois: campo_52(VARCHAR2), campo_53(VARCHAR2)
 TABELAS_OPER001 = {"OPER_001"}
 
-# OPER_TMP ÔøΩ duplica campos pois e usada por Jasper/Crystal que nao serao migrados agora
+# OPER_TMP ù duplica campos pois e usada por Jasper/Crystal que nao serao migrados agora
 # Antes: int_01, int_02 -> Depois: str_02, str_03, int_01, int_02 (ambos presentes)
 TABELAS_OPERTMP = {"OPER_TMP"}
 
-# RCNB_060 ÔøΩ tabela temporaria, usa campos gemeos com sufixo _STR
+# RCNB_060 ù tabela temporaria, usa campos gemeos com sufixo _STR
 # nivel_estrutura -> nivel_estrutura_str
 # grupo_estrutura -> grupo_estrutura_str  
 # Se gemeo ocupado, usar nivel_estrutura_str > grupo_... > subgrupo_... > item_...
@@ -156,6 +156,7 @@ TABELAS_RCNB060 = {"RCNB_060"}
 # Gerado automaticamente do CSV de PKs
 # Formato: (col_legada_9, col_legada_4, col_nova_r, col_nova_o)
 PARES_PK_POR_TABELA = {
+    "BASI_008": [("cnpj9_fornecedor", "cnpj4_fornecedor", "cnpj_fornecedor_r", "cnpj_fornecedor_o")],
     "BASI_037": [("cnpj_cliente9", "cnpj_cliente4", "cnpj_cliente_r", "cnpj_cliente_o")],
     "BASI_041": [("cnpj_cliente9", "cnpj_cliente4", "cnpj_cliente_r", "cnpj_cliente_o")],
     "BASI_245": [("fornecedor_9", "fornecedor_4", "fornecedor_r", "fornecedor_o")],
@@ -164,6 +165,7 @@ PARES_PK_POR_TABELA = {
     "BASI_969": [("cliente9", "cliente4", "cliente_r", "cliente_o"), ("col_cliente9", "col_cliente4", "col_cliente_r", "col_cliente_o")],
     "CONS_001": [("cnpj9", "cnpj4", "cnpj_r", "cnpj_o")],
     "CONS_010": [("cnpj9", "cnpj4", "cnpj_r", "cnpj_o")],
+    "CONT_030": [("cgc9_contab", "cgc4_contab", "cgc_contab_r", "cgc_contab_o")],
     "COST_001": [("cnpj9", "cnpj4", "cnpj_r", "cnpj_o")],
     "CPAG_010": [("cgc_9", "cgc_4", "cgc_r", "cgc_o")],
     "CPAG_010_PED_COMPRA": [("cgc_9", "cgc_4", "cgc_r", "cgc_o")],
@@ -172,12 +174,20 @@ PARES_PK_POR_TABELA = {
     "CPAG_168": [("tcre_cnpj9", "tcre_cnpj4", "tcre_cnpj_r", "tcre_cnpj_o"), ("tpag_cnpj9", "tpag_cnpj4", "tpag_cnpj_r", "tpag_cnpj_o")],
     "CPAG_350": [("fornecedor9", "fornecedor4", "fornecedor_r", "fornecedor_o")],
     "CPAG_450": [("cnpj_cli9", "cnpj_cli4", "cnpj_cli_r", "cnpj_cli_o")],
+    "CPAG_850": [("cnpj9_cli_cheque", "cnpj4_cli_cheque", "cnpj_cli_cheque_r", "cnpj_cli_cheque_o"), ("cnpj9_forn_titulo", "cnpj4_forn_titulo", "cnpj_forn_titulo_r", "cnpj_forn_titulo_o")],
+    "CREC_060": [("cgc9_endosso", "cgc4_endosso", "cgc_endosso_r", "cgc_endosso_o")],
+    "CREC_070": [("cgc9_apg", "cgc4_apg", "cgc_apg_r", "cgc_apg_o"), ("cgc9_pg", "cgc4_pg", "cgc_pg_r", "cgc_pg_o")],
     "CREC_101": [("cnpj_cliente9", "cnpj_cliente4", "cnpj_cliente_r", "cnpj_cliente_o")],
     "CREC_102": [("cnpj_cliente9", "cnpj_cliente4", "cnpj_cliente_r", "cnpj_cliente_o")],
     "CREC_150": [("cgc_9", "cgc_4", "cgc_r", "cgc_o")],
+    "CREC_170": [("cgc9_cli", "cgc4_cli", "cgc_cli_r", "cgc_cli_o")],
+    "CREC_180": [("cgc9_cli", "cgc4_cli", "cgc_cli_r", "cgc_cli_o")],
     "CREC_180_SIMULA": [("cnpj9", "cnpj4", "cnpj_r", "cnpj_o")],
     "CREC_200": [("cgc_9", "cgc_4", "cgc_r", "cgc_o")],
-    "CREC_209": [("cgc_9", "cgc_4", "cgc_r", "cgc_o")],
+    "CREC_209": [("cgc_9", "cgc_4", "cgc_r", "cgc_o"), ("cgc_9_cliente", "cgc_4_cliente", "cgc_cliente_r", "cgc_cliente_o")],
+    "CREC_250": [("cgc9cli", "cgc4cli", "cgc_cli_r", "cgc_cli_o")],
+    "CREC_251": [("cgc9cli", "cgc4cli", "cgc_cli_r", "cgc_cli_o")],
+    "CREC_252": [("cgc9cli", "cgc4cli", "cgc_cli_r", "cgc_cli_o")],
     "CREC_450": [("cnpj_cli9", "cnpj_cli4", "cnpj_cli_r", "cnpj_cli_o")],
     "CREC_563": [("cli_dup_cgc_cli9", "cli_dup_cgc_cli4", "cli_dup_cgc_cli_r", "cli_dup_cgc_cli_o")],
     "CREC_960": [("cnpj9", "cnpj4", "cnpj_r", "cnpj_o")],
@@ -185,6 +195,7 @@ PARES_PK_POR_TABELA = {
     "EFIC_012": [("cgc_cli_for9", "cgc_cli_for4", "cgc_cli_for_r", "cgc_cli_for_o")],
     "EIXO_003": [("cnpj_9", "cnpj_4", "cnpj_r", "cnpj_o")],
     "EIXO_027": [("cgc_9", "cgc_4", "cgc_r", "cgc_o")],
+    "EMPR_073": [("cnpj9_fornec", "cnpj4_fornec", "cnpj_fornec_r", "cnpj_fornec_o")],
     "ESTQ_400": [("cliente9", "cliente4", "cliente_r", "cliente_o")],
     "ESTQ_405": [("cliente9", "cliente4", "cliente_r", "cliente_o")],
     "EXPT_040": [("cgc9", "cgc4", "cgc_r", "cgc_o")],
@@ -209,9 +220,10 @@ PARES_PK_POR_TABELA = {
     "HDOC_110": [("cgc9", "cgc4", "cgc_r", "cgc_o")],
     "HDOC_115": [("cgc9", "cgc4", "cgc_r", "cgc_o")],
     "INTE_055": [("cliban_cgc_cli9", "cliban_cgc_cli4", "cliban_cgc_cli_r", "cliban_cgc_cli_o")],
-    "INTE_067": [("clifinan_cgc_cli9", "clifinan_cgc_cli4", "clifinan_cgc_cli_r", "clifinan_cgc_cli_o")],
+    "INTE_067": [("clifinan_cgc_cli9", "clifinan_cgc_cli4", "clifinan_cgc_cli_r", "clifinan_cgc_cli_o"), ("fonfinan_cgc9fon", "fonfinan_cgc4fon", "fonfinan_cgc_fon_r", "fonfinan_cgc_fon_o")],
     "INTE_084": [("cnpj9", "cnpj4", "cnpj_r", "cnpj_o")],
     "INTE_305": [("cnpj9", "cnpj4", "cnpj_r", "cnpj_o")],
+    "INTE_360": [("cgc9_transp", "cgc4_transp", "cgc_transp_r", "cgc_transp_o")],
     "INTE_385": [("cnpj9", "cnpj4", "cnpj_r", "cnpj_o")],
     "INTE_406": [("fornecedor_9", "fornecedor_4", "fornecedor_r", "fornecedor_o")],
     "INTE_510": [("cnpj9", "cnpj4", "cnpj_r", "cnpj_o")],
@@ -219,12 +231,16 @@ PARES_PK_POR_TABELA = {
     "INTE_560": [("ch_it_nf_cgc_9", "ch_it_nf_cgc_4", "ch_it_nf_cgc_r", "ch_it_nf_cgc_o")],
     "INTE_570": [("cli_dup_cgc_cli9", "cli_dup_cgc_cli4", "cli_dup_cgc_cli_r", "cli_dup_cgc_cli_o")],
     "INTE_WMS_TAGS_NOTA": [("cnpj_9", "cnpj_4", "cnpj_r", "cnpj_o")],
+    "IXML_010": [("cnpj9_transp", "cnpj4_transp", "cnpj_transp_r", "cnpj_transp_o")],
     "I_OBRF_017": [("cgc_cli_for_9", "cgc_cli_for_4", "cgc_cli_for_r", "cgc_cli_for_o")],
     "LIVE_001": [("cnpj9", "cnpj4", "cnpj_r", "cnpj_o")],
     "LIVE_002": [("cnpj9", "cnpj4", "cnpj_r", "cnpj_o")],
+    "LIVE_010": [("cnpj9_origem", "cnpj4_origem", "cnpj_origem_r", "cnpj_origem_o")],
     "LOJA_020": [("cgc_9", "cgc_4", "cgc_r", "cgc_o")],
     "LOJA_060": [("cnpj9", "cnpj4", "cnpj_r", "cnpj_o")],
     "LOJA_061": [("cnpj9", "cnpj4", "cnpj_r", "cnpj_o")],
+    "LOJA_850": [("cnpj9_cli", "cnpj4_cli", "cnpj_cli_r", "cnpj_cli_o")],
+    "LOJA_855": [("cnpj9_cli", "cnpj4_cli", "cnpj_cli_r", "cnpj_cli_o")],
     "MONK_020": [("cgc_9", "cgc_4", "cgc_r", "cgc_o")],
     "MTTM_004": [("cgc_9", "cgc_4", "cgc_r", "cgc_o")],
     "OBRF_002": [("cgc_9", "cgc_4", "cgc_r", "cgc_o")],
@@ -252,7 +268,10 @@ PARES_PK_POR_TABELA = {
     "OBRF_160": [("cnpj9", "cnpj4", "cnpj_r", "cnpj_o")],
     "OBRF_186": [("capa_ent_forcli9", "capa_ent_forcli4", "capa_ent_forcli_r", "capa_ent_forcli_o")],
     "OBRF_195": [("cnpj_9", "cnpj_4", "cnpj_r", "cnpj_o")],
+    "OBRF_206": [("cnpj9_cli", "cnpj4_cli", "cnpj_cli_r", "cnpj_cli_o")],
     "OBRF_250": [("fornecedor9", "fornecedor4", "fornecedor_r", "fornecedor_o")],
+    "OBRF_275": [("cnpj_9_nota", "cnpj_4_nota", "cnpj_nota_r", "cnpj_nota_o")],
+    "OBRF_297": [("cnpj9_nota", "cnpj4_nota", "cnpj_nota_r", "cnpj_nota_o")],
     "OBRF_430": [("cnpj9", "cnpj4", "cnpj_r", "cnpj_o")],
     "OBRF_431": [("cnpj9", "cnpj4", "cnpj_r", "cnpj_o")],
     "OBRF_700": [("cod_part9", "cod_part4", "cod_part_r", "cod_part_o")],
@@ -266,9 +285,18 @@ PARES_PK_POR_TABELA = {
     "OBRF_725": [("cnpj_9", "cnpj_4", "cnpj_r", "cnpj_o")],
     "OBRF_743": [("cnpj9", "cnpj4", "cnpj_r", "cnpj_o")],
     "OBRF_772": [("cnpj9", "cnpj4", "cnpj_r", "cnpj_o")],
+    "OBRF_783": [("cgc9_fornecedor", "cgc4_fornecedor", "cgc_fornecedor_r", "cgc_fornecedor_o")],
+    "OBRF_788": [("cgc9_fornecedor", "cgc4_fornecedor", "cgc_fornecedor_r", "cgc_fornecedor_o")],
+    "OBRF_810": [("cnpj9_cliente", "cnpj4_cliente", "cnpj_cliente_r", "cnpj_cliente_o")],
     "OBRF_823": [("cnpj9", "cnpj4", "cnpj_r", "cnpj_o")],
+    "OBRF_832": [("cgc9_fornecedor", "cgc4_fornecedor", "cgc_fornecedor_r", "cgc_fornecedor_o")],
     "OBRF_851": [("terc_9", "terc_4", "terc_r", "terc_o")],
+    "OBRF_971": [("cnpj_9_nf_entr", "cnpj_4_nf_entr", "cnpj_nf_entr_r", "cnpj_nf_entr_o")],
+    "OPER_284": [("cnpj9_transp", "cnpj4_transp", "cnpj_transp_r", "cnpj_transp_o")],
     "PCPC_012": [("cliente_cgc9", "cliente_cgc4", "cliente_cgc_r", "cliente_cgc_o"), ("fornecedor_cgc9", "fornecedor_cgc4", "fornecedor_cgc_r", "fornecedor_cgc_o")],
+    "PCPC_340": [("cnpj9_terceiro", "cnpj4_terceiro", "cnpj_terceiro_r", "cnpj_terceiro_o")],
+    "PCPC_341": [("cnpj9_terceiro", "cnpj4_terceiro", "cnpj_terceiro_r", "cnpj_terceiro_o")],
+    "PCPC_343": [("cnpj9_terceiro", "cnpj4_terceiro", "cnpj_terceiro_r", "cnpj_terceiro_o")],
     "PCPF_080": [("cgc9", "cgc4", "cgc_r", "cgc_o")],
     "PCPF_081": [("cgc9", "cgc4", "cgc_r", "cgc_o")],
     "PCPT_016": [("cgc_9", "cgc_4", "cgc_r", "cgc_o")],
@@ -284,13 +312,15 @@ PARES_PK_POR_TABELA = {
     "PEDI_055": [("cliban_cgc_cli9", "cliban_cgc_cli4", "cliban_cgc_cli_r", "cliban_cgc_cli_o")],
     "PEDI_058": [("cnpj9", "cnpj4", "cnpj_r", "cnpj_o")],
     "PEDI_065": [("cgc_9", "cgc_4", "cgc_r", "cgc_o")],
-    "PEDI_067": [("clifinan_cgc_cli9", "clifinan_cgc_cli4", "clifinan_cgc_cli_r", "clifinan_cgc_cli_o")],
+    "PEDI_067": [("clifinan_cgc_cli9", "clifinan_cgc_cli4", "clifinan_cgc_cli_r", "clifinan_cgc_cli_o"), ("fonfinan_cgc9fon", "fonfinan_cgc4fon", "fonfinan_cgc_fon_r", "fonfinan_cgc_fon_o")],
     "PEDI_068": [("cnpj_cliente9", "cnpj_cliente4", "cnpj_cliente_r", "cnpj_cliente_o")],
     "PEDI_074": [("cnpj9", "cnpj4", "cnpj_r", "cnpj_o")],
     "PEDI_084": [("cnpj9", "cnpj4", "cnpj_r", "cnpj_o")],
     "PEDI_103": [("cnpj9", "cnpj4", "cnpj_r", "cnpj_o")],
+    "PEDI_112": [("cgc9_origem", "cgc4_origem", "cgc_origem_r", "cgc_origem_o")],
     "PEDI_117": [("cgc9", "cgc4", "cgc_r", "cgc_o")],
     "PEDI_118": [("cgc9", "cgc4", "cgc_r", "cgc_o")],
+    "PEDI_119": [("cnpj9_cliente", "cnpj4_cliente", "cnpj_cliente_r", "cnpj_cliente_o")],
     "PEDI_121": [("cgc9", "cgc4", "cgc_r", "cgc_o")],
     "PEDI_150": [("cd_cli_cgc_cli9", "cd_cli_cgc_cli4", "cd_cli_cgc_cli_r", "cd_cli_cgc_cli_o")],
     "PEDI_156": [("cgc_9", "cgc_4", "cgc_r", "cgc_o")],
@@ -314,10 +344,12 @@ PARES_PK_POR_TABELA = {
     "PEDI_411": [("cliente9", "cliente4", "cliente_r", "cliente_o")],
     "PEDI_420": [("cliente9", "cliente4", "cliente_r", "cliente_o")],
     "PEDI_430": [("cgc9", "cgc4", "cgc_r", "cgc_o")],
+    "PEDI_440": [("cgc9_coligado", "cgc4_coligado", "cgc_coligado_r", "cgc_coligado_o"), ("cgc9_origem", "cgc4_origem", "cgc_origem_r", "cgc_origem_o")],
     "PEDI_450": [("cgc_9", "cgc_4", "cgc_r", "cgc_o")],
     "PEDI_475": [("cgc_9", "cgc_4", "cgc_r", "cgc_o")],
     "PEDI_490": [("cgc_9", "cgc_4", "cgc_r", "cgc_o")],
     "PEDI_711": [("cgc_9", "cgc_4", "cgc_r", "cgc_o")],
+    "PEDI_728": [("cnpj9_cliente", "cnpj4_cliente", "cnpj_cliente_r", "cnpj_cliente_o")],
     "PEDI_799": [("cgc9", "cgc4", "cgc_r", "cgc_o")],
     "PEDI_806": [("cgc_9", "cgc_4", "cgc_r", "cgc_o")],
     "PEDI_807": [("cgc_9", "cgc_4", "cgc_r", "cgc_o")],
@@ -329,21 +361,30 @@ PARES_PK_POR_TABELA = {
     "RCNB_140": [("cnpj_fornecedor9", "cnpj_fornecedor4", "cnpj_fornecedor_r", "cnpj_fornecedor_o")],
     "RCNB_200": [("cgc_9", "cgc_4", "cgc_r", "cgc_o")],
     "RCNB_204": [("cgc_9", "cgc_4", "cgc_r", "cgc_o")],
+    "RCNB_216": [("cgc9_componente", "cgc4_componente", "cgc_componente_r", "cgc_componente_o")],
     "SPED_0000": [("num_cnpj9", "num_cnpj4", "num_cnpj_r", "num_cnpj_o")],
     "SPED_0150": [("num_cnpj9", "num_cnpj4", "num_cnpj_r", "num_cnpj_o")],
     "SPED_1601": [("part_ip_cnpj9", "part_ip_cnpj4", "part_ip_cnpj_r", "part_ip_cnpj_o"), ("part_it_cnpj9", "part_it_cnpj4", "part_it_cnpj_r", "part_it_cnpj_o")],
     "SPED_C100": [("num_cnpj_9", "num_cnpj_4", "num_cnpj_r", "num_cnpj_o")],
     "SPED_C170": [("num_cnpj_9", "num_cnpj_4", "num_cnpj_r", "num_cnpj_o")],
+    "SPED_K200_H010": [("cnpj9_participante", "cnpj4_participante", "cnpj_participante_r", "cnpj_participante_o")],
     "SPED_PC_0000": [("num_cnpj9", "num_cnpj4", "num_cnpj_r", "num_cnpj_o")],
     "SPED_PC_0019": [("num_cnpj_9", "num_cnpj_4", "num_cnpj_r", "num_cnpj_o"), ("num_cnpj_empr9", "num_cnpj_empr4", "num_cnpj_empr_r", "num_cnpj_empr_o")],
-    "SPED_PC_0150": [("num_cnpj9", "num_cnpj4", "num_cnpj_r", "num_cnpj_o")],
-    "SPED_PC_0450": [("cnpj9", "cnpj4", "cnpj_r", "cnpj_o")],
+    "SPED_PC_0145": [("num_cnpj9_empr", "num_cnpj4_empr", "num_cnpj_empr_r", "num_cnpj_empr_o")],
+    "SPED_PC_0150": [("num_cnpj9", "num_cnpj4", "num_cnpj_r", "num_cnpj_o"), ("num_cnpj9_empr", "num_cnpj4_empr", "num_cnpj_empr_r", "num_cnpj_empr_o")],
+    "SPED_PC_0190": [("num_cnpj9_empr", "num_cnpj4_empr", "num_cnpj_empr_r", "num_cnpj_empr_o")],
+    "SPED_PC_0200": [("num_cnpj9_empr", "num_cnpj4_empr", "num_cnpj_empr_r", "num_cnpj_empr_o")],
+    "SPED_PC_0400": [("num_cnpj9_empr", "num_cnpj4_empr", "num_cnpj_empr_r", "num_cnpj_empr_o")],
+    "SPED_PC_0450": [("cnpj9", "cnpj4", "cnpj_r", "cnpj_o"), ("num_cnpj9_empr", "num_cnpj4_empr", "num_cnpj_empr_r", "num_cnpj_empr_o")],
     "SPED_PC_0500": [("num_cnpj_empr9", "num_cnpj_empr4", "num_cnpj_empr_r", "num_cnpj_empr_o")],
-    "SPED_PC_056": [("capa_ent_forcli9", "capa_ent_forcli4", "capa_ent_forcli_r", "capa_ent_forcli_o")],
+    "SPED_PC_056": [("capa_ent_forcli9", "capa_ent_forcli4", "capa_ent_forcli_r", "capa_ent_forcli_o"), ("num_cnpj9_empr", "num_cnpj4_empr", "num_cnpj_empr_r", "num_cnpj_empr_o")],
     "SPED_PC_0600": [("num_cnpj_empr9", "num_cnpj_empr4", "num_cnpj_empr_r", "num_cnpj_empr_o")],
     "SPED_PC_C100": [("num_cnpj_9", "num_cnpj_4", "num_cnpj_r", "num_cnpj_o")],
     "SPED_PC_C170": [("num_cnpj_9", "num_cnpj_4", "num_cnpj_r", "num_cnpj_o")],
+    "SPED_PC_P100": [("num_cnpj9_empr", "num_cnpj4_empr", "num_cnpj_empr_r", "num_cnpj_empr_o")],
     "SUPP_010": [("cgc9", "cgc4", "cgc_r", "cgc_o")],
+    "SUPR_004": [("cgc9_forn", "cgc4_forn", "cgc_forn_r", "cgc_forn_o")],
+    "SUPR_005": [("cgc9_forn", "cgc4_forn", "cgc_forn_r", "cgc_forn_o")],
     "SUPR_010": [("fornecedor9", "fornecedor4", "fornecedor_r", "fornecedor_o")],
     "SUPR_011": [("cnpj_fornecedor9", "cnpj_fornecedor4", "cnpj_fornecedor_r", "cnpj_fornecedor_o")],
     "SUPR_012": [("fornecedor9", "fornecedor4", "fornecedor_r", "fornecedor_o")],
@@ -353,7 +394,7 @@ PARES_PK_POR_TABELA = {
     "SUPR_025": [("cnpj_trans9", "cnpj_trans4", "cnpj_trans_r", "cnpj_trans_o")],
     "SUPR_030": [("cgc_9", "cgc_4", "cgc_r", "cgc_o")],
     "SUPR_060": [("forn_060_forne9", "forn_060_forne4", "forn_060_forne_r", "forn_060_forne_o")],
-    "SUPR_132": [("cnpj_transp9", "cnpj_transp4", "cnpj_transp_r", "cnpj_transp_o")],
+    "SUPR_132": [("cnpj9_cliente", "cnpj4_cliente", "cnpj_cliente_r", "cnpj_cliente_o"), ("cnpj_transp9", "cnpj_transp4", "cnpj_transp_r", "cnpj_transp_o")],
     "SUPR_180": [("cod_for_forne9", "cod_for_forne4", "cod_for_forne_r", "cod_for_forne_o")],
     "SUPR_200": [("cgc_9", "cgc_4", "cgc_r", "cgc_o")],
     "SUPR_210": [("cgc_for9", "cgc_for4", "cgc_for_r", "cgc_for_o")],
