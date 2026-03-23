@@ -194,6 +194,39 @@ def _linha_e_duplicata_make(linha):
 def _achar(lista, num_linha, bug, tipo, msg):
     lista.append({"linha": num_linha, "bug": bug, "tipo": tipo, "mensagem": msg})
 
+
+def _e_bridge_parseint_dto_legado(linha):
+    """
+    Detecta ponte explicita de compatibilidade em DTO:
+      dto.<base>9 = Integer.parseInt(dto.<base>_r);
+      dto.<base>4 = Integer.parseInt(dto.<base>_o);
+    Esse padrao e aceito para manter campo legado em paralelo.
+    """
+    m = re.search(
+        r'\bdto\.([a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*Integer\.parseInt\s*\(\s*dto\.([a-zA-Z_][a-zA-Z0-9_]*)\s*\)',
+        linha,
+        re.IGNORECASE,
+    )
+    if not m:
+        return False, None
+
+    lhs = m.group(1).lower()  # ex: cnpj9
+    rhs = m.group(2).lower()  # ex: cnpj_r
+
+    if lhs.endswith('9') and rhs.endswith('_r'):
+        base_l = lhs[:-1].rstrip('_')
+        base_r = rhs[:-2].rstrip('_')
+        if base_l == base_r:
+            return True, lhs
+
+    if lhs.endswith('4') and rhs.endswith('_o'):
+        base_l = lhs[:-1].rstrip('_')
+        base_r = rhs[:-2].rstrip('_')
+        if base_l == base_r:
+            return True, lhs
+
+    return False, None
+
 # ============================================================
 # DETECTORES
 # ============================================================
@@ -1185,6 +1218,7 @@ def detectar_variavel_java_legada(linhas_limpas, caminho_arquivo=""):
     todas_palavras = set()
     campos_cnpj_declarados = set()
     campos_deprecated_reportados = set()
+    campos_bridge_reportados = set()
     if permite_duplicidade:
         texto_completo = " ".join(linhas_limpas).lower()
         import re as re_temp
@@ -1205,9 +1239,29 @@ def detectar_variavel_java_legada(linhas_limpas, caminho_arquivo=""):
         
         linha_sem_aspas = re.sub(r'"[^"]*"', '""', linha)
         linha_sem_aspas = re.sub(r"'[^']*'", "''", linha_sem_aspas)
+        e_bridge_dto, nome_bridge_dto = _e_bridge_parseint_dto_legado(linha_sem_aspas)
         
         for m in pat.finditer(linha_sem_aspas):
             var_name = m.group(1).lower()
+
+            # Excecao de compatibilidade pedida: dto.base9 <- parseInt(dto.base_r)
+            # e dto.base4 <- parseInt(dto.base_o) nao devem gerar erro,
+            # mas devem ficar como advertencia/aviso.
+            if e_bridge_dto and nome_bridge_dto == var_name:
+                if var_name not in campos_bridge_reportados:
+                    base_bridge = var_name[:-1].rstrip('_')
+                    sufixo_novo = 'r' if var_name.endswith('9') else 'o'
+                    _achar(
+                        avisos,
+                        i,
+                        "BUG_DTO_BRIDGE_LEGADO",
+                        "AVISO",
+                        f"Mapeamento legado detectado: 'dto.{var_name} = Integer.parseInt(dto.{base_bridge}_{sufixo_novo})'. "
+                        f"Padrao permitido para compatibilidade, mas manter sob monitoramento (advertencia).",
+                    )
+                    campos_bridge_reportados.add(var_name)
+                continue
+
             if _e_coluna_cnpj(var_name):
                 # Se permite duplicidade, verifica se a variante (_r / _o) existe no mesmo arquivo
                 se_perdoado = False
@@ -1270,8 +1324,14 @@ def detectar_dto_cnpj9(linhas_limpas):
     avisos = []
     pat = re.compile(r'\bdto\.([a-zA-Z_][a-zA-Z0-9_]*?_?[94])\b', re.IGNORECASE)
     for i, linha in enumerate(linhas_limpas, 1):
+        e_bridge_dto, nome_bridge_dto = _e_bridge_parseint_dto_legado(linha)
         for m in pat.finditer(linha):
             var_name = m.group(1).lower()
+
+            # Se for a ponte legada explicitamente aceita, nao gera advertencia.
+            if e_bridge_dto and nome_bridge_dto == var_name:
+                continue
+
             if _e_coluna_cnpj(var_name):
                 msg = (f"Acesso 'dto.{m.group(1)}' usa nomenclatura legado (sufixo 9/4). "
                        f"Verifique se precisa continuar assim ou se deve alterar para _r/_o.")
