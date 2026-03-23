@@ -1166,6 +1166,28 @@ def detectar_campo_numerico_cnpj_fj(linhas_limpas, nome_arquivo=""):
     return erros
 
 
+def detectar_variavel_java_legada(linhas_limpas):
+    """
+    BUG_VARIAVEL_LEGADA -- Detecta variaveis Java no codigo com nomenclatura de CNPJ NUMBER legacy.
+    Ex: int cgc9; String forne4; private Long cli_9;
+    """
+    erros = []
+    pat = re.compile(r'\b([a-zA-Z_][a-zA-Z0-9_]*?_?[942])\b')
+    for i, linha in enumerate(linhas_limpas, 1):
+        if _linha_e_duplicata_make(linha):
+            continue
+        
+        linha_sem_aspas = re.sub(r'"[^"]*"', '""', linha)
+        linha_sem_aspas = re.sub(r"'[^']*'", "''", linha_sem_aspas)
+        
+        for m in pat.finditer(linha_sem_aspas):
+            var_name = m.group(1).lower()
+            if _e_coluna_cnpj(var_name):
+                _achar(erros, i, "BUG_VARIAVEL_LEGADA", "ERRO",
+                       f"Variavel/referencia Java com nomenclatura legado '{var_name}'. "
+                       f"Mude para tipo String com sufixo _r/_o ou unifique para o objeto CNPJ.")
+    return erros
+
 # ============================================================
 # ORQUESTRADOR DE BUGS
 # ============================================================
@@ -1189,6 +1211,7 @@ def detectar_todos_bugs(linhas_limpas, texto_limpo, caminho_arquivo=""):
     erros  += detectar_cnpj_legado_em_exec_sql_fj(linhas_limpas, nome_arquivo=caminho_arquivo)
     erros  += detectar_campo_numerico_cnpj_fj(linhas_limpas, nome_arquivo=caminho_arquivo)
     erros  += detectar_init_field_fj(linhas_limpas, nome_arquivo=caminho_arquivo)
+    erros  += detectar_variavel_java_legada(linhas_limpas)
 
     erros.sort(key=lambda x: x.get("linha", 0))
     avisos.sort(key=lambda x: x.get("linha", 0))
@@ -1557,8 +1580,11 @@ def _branch_existe(repo_path: str, nome: str) -> bool:
 
 
 def _resolver_branch_principal(repo_path: str) -> str:
-    """Detecta o branch principal: WEB, main, master, develop, trunk."""
-    for candidato in ["WEB", "main", "master", "develop", "trunk"]:
+    """Detecta o branch principal: WEB, main, master, develop, trunk e suas variantes origin/."""
+    candidatos_locais = ["WEB", "main", "master", "develop", "trunk"]
+    candidatos_remotos = ["origin/" + c for c in candidatos_locais]
+    
+    for candidato in candidatos_locais + candidatos_remotos:
         if _branch_existe(repo_path, candidato):
             return candidato
     raise RuntimeError(

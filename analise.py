@@ -155,9 +155,9 @@ def listar_arquivos(dir_web: Path, dir_cnpj: Path) -> Dict[str, List[str]]:
 
 def listar_arquivos_git(repo_path: str, branch_main: str,
                         branch_cnpj: str) -> Dict[str, List[str]]:
-    # Modificados: diff entre branch principal (WEB) e branch CNPJ
+    # Modificados: diff entre branch principal (WEB) e branch CNPJ (changes introduced by CNPJ)
     result = subprocess.run(
-        ["git", "diff", f"{branch_main}..{branch_cnpj}", "--name-only"],
+        ["git", "diff", f"{branch_main}...{branch_cnpj}", "--name-only"],
         cwd=repo_path, capture_output=True, text=True,
     )
     modificados = [f for f in result.stdout.splitlines() if _deve_incluir(Path(f))]
