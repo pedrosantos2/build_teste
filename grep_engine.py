@@ -18,6 +18,7 @@ import re
 import json
 import argparse
 import glob
+import subprocess
 from pathlib import Path
 
 # ============================================================
@@ -71,30 +72,57 @@ def _encontrar_raiz_git(partida="."):
 
 # Pastas que DEVEM ser analisadas
 # Pastas que NUNCA devem ser analisadas
-def buscar_arquivos_java(source_dir=None):
-    if source_dir:
-        raiz = source_dir
-    else:
-        raiz = _encontrar_raiz_git() or "."
+def buscar_arquivos_java(source_dir=None, branch_main=None, branch_cnpj=None):
+    """
+    Retorna lista de arquivos .java a analisar.
 
+    Modo git (branch_main + branch_cnpj fornecidos):
+      - Usa 'git diff branch_main...branch_cnpj --name-only' para obter
+        apenas os arquivos modificados no branch CNPJ em relacao ao principal.
+      - Retorna caminhos absolutos dentro de source_dir (ou raiz git).
+
+    Modo glob (padrao):
+      - Varre o disco recursivamente como antes.
+    """
+    raiz = source_dir or _encontrar_raiz_git() or "."
+
+    if branch_main and branch_cnpj:
+        # --- modo git diff ---
+        result = subprocess.run(
+            ["git", "diff", f"{branch_main}...{branch_cnpj}", "--name-only"],
+            cwd=raiz, capture_output=True, text=True,
+        )
+        arquivos_relativos = [
+            f for f in result.stdout.splitlines()
+            if f.endswith(".java")
+        ]
+
+        resultado = []
+        for rel in arquivos_relativos:
+            partes = Path(rel).parts
+            if any(p in PASTAS_EXCLUIR for p in partes):
+                continue
+            if not any(p in PASTAS_INCLUIR for p in partes):
+                continue
+            if deve_ignorar(rel):
+                continue
+            abs_path = str(Path(raiz) / rel)
+            resultado.append(abs_path)
+        return resultado
+
+    # --- modo glob (padrao) ---
     padrao = os.path.join(raiz, "**", "*.java")
     arquivos = glob.glob(padrao, recursive=True)
 
     resultado = []
     for a in arquivos:
         partes = Path(a).parts
-
-        # Ignora se passar por pasta excluída
         if any(p in PASTAS_EXCLUIR for p in partes):
             continue
-
-        # Só inclui se passar por pelo menos uma pasta desejada
         if not any(p in PASTAS_INCLUIR for p in partes):
             continue
-
         if not deve_ignorar(a):
             resultado.append(a)
-
     return resultado
 
 # ============================================================
@@ -1736,6 +1764,12 @@ def main():
     )
     parser.add_argument("--source", default=None, help="Diretorio raiz do codigo-fonte Java (se omitido, busca a partir da raiz do repositorio git)")
     parser.add_argument("--output", default="reports/analise.json", help="Caminho do relatorio JSON de saida")
+    parser.add_argument("--modo-git", action="store_true",
+                        help="Usa git diff para buscar apenas arquivos modificados entre branches")
+    parser.add_argument("--branch-web",  default=None,
+                        help="Branch principal/WEB (auto-detecta: WEB, main, master)")
+    parser.add_argument("--branch-cnpj", default=None,
+                        help="Branch CNPJ (auto-detecta: origin/CNPJ, CNPJ)")
     args = parser.parse_args()
 
     print("=" * 60)
@@ -1743,7 +1777,15 @@ def main():
     print("  Systextil ERP | Deteccao de Bugs de Migracao CNPJ")
     print("=" * 60)
 
-    arquivos = buscar_arquivos_java(args.source)
+    branch_main = None
+    branch_cnpj = None
+    if args.modo_git:
+        raiz_git = args.source or _encontrar_raiz_git() or "."
+        branch_main = args.branch_web  or _resolver_branch_principal(raiz_git)
+        branch_cnpj = args.branch_cnpj or _resolver_branch_cnpj(raiz_git)
+        print(f"\n  Modo git: {branch_main}...{branch_cnpj}")
+
+    arquivos = buscar_arquivos_java(args.source, branch_main, branch_cnpj)
     raiz_usada = args.source or _encontrar_raiz_git() or "."
     if not arquivos:
         print(f"\u26a0 Nenhum arquivo Java encontrado em: {raiz_usada}")
