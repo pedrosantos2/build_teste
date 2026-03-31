@@ -231,3 +231,105 @@ def analisar(
         "resumo":  resumo,
         "_usage":  usage_total,
     }
+def _chamar_api_tipagem(client, lote_invocacoes: list, numero_lote: int, total_lotes: int) -> dict:
+    prompt = f"""Role: Analisador de Tipagem Java/.fj.
+Task: Validar chamadas de metodos e apontar incompatibilidades de tipos em argumentos.
+
+Abaixo estao as invocacoes extraidas do codigo fonte (lote {numero_lote}/{total_lotes}).
+Para cada invocacao, avalie se ha um erro de tipagem claro, especialmente focado no uso de variaveis do tipo String onde se espera int.
+
+Instrucoes Estritas:
+1. FOCO: Quando um metodo no pacote de negocios (ex: pcpb, systextil) esperar `int` e receber `String` (literal entre aspas ou variavel convertida/conhecida), sugira a substituicao pelo metodo com sufixo `RT`. 
+   Ex: `buscaValorPcpb("123")` -> `buscaValorPcpbRT("123")`
+2. FALSOS POSITIVOS: Ignore imediatamente e não relate se houver conversão/cast explícito no argumento (ex: `(int)` ou `Integer.parseInt()`).
+3. Se o argumento aparenta ser variavel do tipo String ou null, classifique como possivel erro sugerindo RT, mas marque severidade "ADVERTENCIA".
+4. Retorne EXCLUSIVAMENTE um objeto JSON valido, respeitando a estrutura abaixo, sem textos adicionais.
+
+{{
+  "inconsistencias": [
+    {{
+      "arquivo": "<caminho_do_arquivo>",
+      "linha": <linha_da_invocacao>,
+      "codigo_analisado": "<codigo>",
+      "chamada": {{
+        "objeto": "<obj>",
+        "metodo_alvo": "<metodo>",
+        "argumentos_passados": "<argumentos_brutos>"
+      }},
+      "correcao_sugerida": {{
+        "aplicar_sufixo_rt": true,
+        "metodo_substituto": "<MetodoComSufixoRT>"
+      }},
+      "severidade": "ADVERTENCIA"
+    }}
+  ]
+}}
+
+LOTE DE INVOCACOES:
+{json.dumps(lote_invocacoes, indent=2, ensure_ascii=False)}
+"""
+
+    response = client.messages.create(
+        model="claude-3-5-sonnet-20241022",
+        max_tokens=4096,
+        temperature=0,
+        messages=[
+            {"role": "user", "content": prompt}
+        ]
+    )
+    
+    raw = response.content[0].text.strip()
+    # Remove markdown code blocks se o modelo ainda adicionar
+    if raw.startswith("```json"):
+        raw = raw[7:]
+    if raw.startswith("```"):
+        raw = raw[3:]
+    if raw.endswith("```"):
+        raw = raw[:-3]
+
+    return json.loads(raw.strip()), response.usage
+
+def analisar_tipagem(hits: List[Dict[str, Any]]) -> dict:
+    """
+    Funcao focada em encontrar incompatibilidade de Tipagem usando o Claude.
+    """
+    client = anthropic.Anthropic()
+    
+    # hits aqui tem o formato: [{"arquivo": "...", "invocacoes": [{...}, {...}]}]
+    todas_invocacoes = []
+    for h in hits:
+        if "invocacoes" in h and h["invocacoes"]:
+            for inv in h["invocacoes"]:
+                inv["arquivo"] = h.get("arquivo", "desconhecido")
+                todas_invocacoes.append(inv)
+                
+    if not todas_invocacoes:
+        return {"inconsistencias": [], "_usage": {}}
+        
+    lotes = [todas_invocacoes[i:i + 30] for i in range(0, len(todas_invocacoes), 30)]
+    total_lotes = len(lotes)
+    
+    todas_inconsistencias = []
+    usage_total = {"input_tokens": 0, "output_tokens": 0}
+    
+    for i, lote in enumerate(lotes, 1):
+        print(f"      [Tipagem] Lote {i}/{total_lotes} ({len(lote)} invocacoes)...")
+        tentativas = 0
+        while tentativas < 3:
+            try:
+                res, usage = _chamar_api_tipagem(client, lote, i, total_lotes)
+                todas_inconsistencias.extend(res.get("inconsistencias", []))
+                usage_total["input_tokens"] += usage.input_tokens
+                usage_total["output_tokens"] += usage.output_tokens
+                break
+            except Exception as e:
+                msg = str(e).lower()
+                if "429" in msg or "rate" in msg:
+                    espera = 15 * (2 ** tentativas)
+                    time.sleep(espera)
+                    tentativas += 1
+                else:
+                    print(f"      [Tipagem] AVISO: lote {i} falhou ({e})")
+                    break
+                    
+    return {"inconsistencias": todas_inconsistencias, "_usage": usage_total}

@@ -31,7 +31,7 @@ from pathlib import Path
 from typing import List, Dict, Any, Optional
 
 import grep_engine
-from claude_analyzer import analisar
+from claude_analyzer import analisar, analisar_tipagem
 from report          import gerar_html
 from config import PASTAS_INCLUIR, PASTAS_EXCLUIR, EXTENSOES_ANALISAR
 
@@ -609,7 +609,7 @@ def main():
     # ------------------------------------------------------------------
     # PASSO 2 — Analise estatica (sem API)
     # ------------------------------------------------------------------
-    print(f"\n[2/3] Analise estatica...")
+    print(f"\n[2/4] Analise estatica...")
 
     # Modificados — severidade normal
     resultados = rodar_analise(modificados, dir_cnpj, repo_path, branch_cnpj)
@@ -639,12 +639,12 @@ def main():
     resultado_claude = {"modulo": modulo, "bugs": [], "resumo": {}}
 
     if not total_erros and not total_avisos:
-        print(f"\n[3/3] Sem erros — API nao sera chamada.")
+        print(f"\n[3/4] Sem erros — API CNPJ nao sera chamada.")
     elif args.dry_run:
-        print(f"\n[3/3] --dry-run: pulando chamada a API.")
+        print(f"\n[3/4] --dry-run: pulando chamada a API CNPJ.")
     else:
         hits = converter_para_hits(resultados)
-        print(f"\n[3/3] Enviando {len(hits)} item(ns) ao Claude...")
+        print(f"\n[3/4] Enviando {len(hits)} item(ns) ao Claude...")
         resultado_claude = analisar(
             modulo       = modulo,
             hits         = hits,
@@ -660,6 +660,51 @@ def main():
               f"| {uso.get('output_tokens',0):,} output "
               f"| {uso.get('cache_read_tokens',0):,} cache")
         imprimir_bugs_claude(resultado_claude.get("bugs", []))
+
+    # ------------------------------------------------------------------
+    # PASSO 4 — Claude Tipagem (RT)
+    # ------------------------------------------------------------------
+    resultado_tipagem = {"inconsistencias": [], "_usage": {}}
+    if args.dry_run:
+        print(f"\n[4/4] --dry-run: pulando Claude para Tipagem.")
+    else:
+        # Pega as invocacoes de todos os resultados da estatica
+        # "resultados" tem dicts com 'invocacoes' gerados pelo grep_engine
+        print(f"\n[4/4] Verificando Incompatibilidades de Tipagem (ex: RT)...")
+        resultado_tipagem = analisar_tipagem(resultados)
+        
+        inconsistencias = resultado_tipagem.get("inconsistencias", [])
+        uso_tipagem = resultado_tipagem.get("_usage", {})
+        print(f"      Tokens (Tipagem): {uso_tipagem.get('input_tokens',0):,} input "
+              f"| {uso_tipagem.get('output_tokens',0):,} output ")
+        
+        if inconsistencias:
+            print(f"      Encontradas {len(inconsistencias)} possivel(is) incompatibilidade(s).")
+            for inc in inconsistencias:
+                sev = inc.get("severidade", "ADVERTENCIA")
+                icone = ICONES.get(sev, "🟣")
+                arq = inc.get("arquivo", "?")
+                lin = inc.get("linha", "?")
+                cod = inc.get("codigo_analisado", "?").strip()
+                sug = inc.get("correcao_sugerida", {}).get("metodo_substituto", "?")
+                print(f"        {icone} [{sev}] {arq}:{lin}")
+                print(f"           Codigo: {cod}")
+                print(f"           Sugestao: Trocar para {sug}")
+        else:
+            print(f"      Nenhuma incompatibilidade encontrada.")
+
+    # Mescla resultados no claude para o output JSON e HTML nao quebrar
+    if resultado_tipagem.get("inconsistencias"):
+        for inc in resultado_tipagem["inconsistencias"]:
+            resultado_claude["bugs"].append({
+                "arquivo": inc.get("arquivo"),
+                "linha": inc.get("linha"),
+                "tipo": "BUG_TIPAGEM_RT",
+                "severidade": inc.get("severidade", "ADVERTENCIA"),
+                "descricao": f"Possivel uso de String onde se espera int. Sugerida substituicao por {inc.get('correcao_sugerida', {}).get('metodo_substituto')}",
+                "codigo": inc.get("codigo_analisado")
+            })
+
 
     # ------------------------------------------------------------------
     # Salva resultados

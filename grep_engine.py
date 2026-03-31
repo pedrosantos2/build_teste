@@ -1644,13 +1644,19 @@ def analisar_arquivo(caminho_arquivo):
     if not erros and not avisos and categoria != "SEM_CNPJ":
         partes.append("Nenhum problema detectado.")
 
-    return {
+    resultado = {
         "arquivo":   nome_arquivo,
         "categoria": categoria,
         "erros":     erros,
         "avisos":    avisos,
         "resumo":    " ".join(partes),
     }
+
+    if (nome_arquivo.endswith('.fj') or nome_arquivo.endswith('.java')) and "texto_limpo" in locals():
+        resultado["imports"] = extrair_imports_fj(texto_limpo)
+        resultado["invocacoes"] = extrair_invocacoes_fj(texto_limpo)
+
+    return resultado
 
 # ============================================================
 # SAIDA
@@ -1892,3 +1898,93 @@ def _resolver_branch_cnpj(repo_path: str) -> str:
         f"Tentados: {candidatos}\n"
         f"Verifique com: git branch -a"
     )
+
+
+# ============================================================
+# RESOLUÇÃO DE DEPENDÊNCIAS (.fj / Java -> Repositórios)
+# ============================================================
+
+def localizar_arquivo_repositorio(import_pacote, caminhos_repositorios):
+    """
+    Identifica de qual repositório externo o pacote pertence e retorna o caminho 
+    físico do arquivo .java correspondente no disco, preparando para Regex no Claude.
+    
+    Args:
+        import_pacote (str): O pacote do import (ex: systextil.services.vendas.VendasProvedor)
+        caminhos_repositorios (dict): Dicionário com os caminhos dos repositórios no Jenkins
+                                      ex: {'plugins_api': '../systextil-plugins-api', 'bo': '../systextil-bo', ...}
+    """
+    if not import_pacote:
+        return None
+
+    repo_alvo = None
+
+    # Rotas específicas do systextil-plugins-api conforme mapeamento do workspace
+    prefixos_plugins_api = [
+        "systextil.bo.inte.sysplan",
+        "systextil.bo.sintegra",
+        "systextil.erros",
+        "systextil.intg.dto",
+        "systextil.plugin",
+        "systextil.services"
+    ]
+
+    for prefix in prefixos_plugins_api:
+        if import_pacote.startswith(prefix):
+            repo_alvo = caminhos_repositorios.get('plugins_api')
+            break
+            
+    # Se não for do plugins-api, testa as rotas clássicas do Function e BO base
+    if not repo_alvo:
+        if import_pacote.startswith("br.com.systextil.function") or import_pacote.startswith("systextil.function"):
+            repo_alvo = caminhos_repositorios.get('function')
+        elif import_pacote.startswith("br.com.systextil.bo") or import_pacote.startswith("systextil.bo"):
+            repo_alvo = caminhos_repositorios.get('bo')
+
+    if not repo_alvo:
+        return None  # Classe do Java core ou de biblioteca externa que ignoramos
+
+    # Converte o pacote Java para estrutura de pastas do disco (Maven/Systextil pattern)
+    caminho_relativo = import_pacote.replace(".", "/") + ".java"
+    caminho_absoluto = Path(repo_alvo) / "src" / "main" / "java" / caminho_relativo
+    
+    return str(caminho_absoluto)
+
+# ============================================================
+# EXTRACTORS PARA .fj e JAVA - OTIMIZACAO DE CONTEXTO CLAUDE
+# ============================================================
+
+REGEX_IMPORTS_FJ = re.compile(r'^import\s+([\w\.]+)(?:\.\*)?\s*;', re.MULTILINE)
+REGEX_INVOCACOES_FJ = re.compile(
+    r'(?:(?:\w+[\w\.]*)\s+)?(\w+)\s*=\s*(?:([a-zA-Z_]\w*)\.)?([a-zA-Z_]\w*)\s*\(([^)]*)\)\s*;|([a-zA-Z_]\w*)\.([a-zA-Z_]\w*)\s*\(([^)]*)\)\s*;'
+)
+
+def extrair_imports_fj(texto):
+    """Extrai todos os imports do arquivo"""
+    return REGEX_IMPORTS_FJ.findall(texto)
+
+def extrair_invocacoes_fj(texto, linha_offset=1):
+    """Extrai chamadas de metodos para avaliacao de tipagem (ex: RT) no LLM"""
+    resultados = []
+    linhas = texto.splitlines()
+    for numero_linha, conteudo_linha in enumerate(linhas, start=linha_offset):
+        for match in REGEX_INVOCACOES_FJ.finditer(conteudo_linha):
+            if match.group(3):
+                resultados.append({
+                    'linha': numero_linha,
+                    'atribuido_a': match.group(1),
+                    'objeto': match.group(2) or '',
+                    'metodo': match.group(3),
+                    'argumentos': match.group(4) or '',
+                    'codigo_analisado': conteudo_linha.strip()
+                })
+            elif match.group(6):
+                resultados.append({
+                    'linha': numero_linha,
+                    'atribuido_a': None,
+                    'objeto': match.group(5),
+                    'metodo': match.group(6),
+                    'argumentos': match.group(7) or '',
+                    'codigo_analisado': conteudo_linha.strip()
+                })
+    return resultados
