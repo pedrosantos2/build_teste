@@ -1653,8 +1653,9 @@ def analisar_arquivo(caminho_arquivo):
     }
 
     if (nome_arquivo.endswith('.fj') or nome_arquivo.endswith('.java')) and "texto_limpo" in locals():
-        resultado["imports"] = extrair_imports_fj(texto_limpo)
+        resultado["imports"]   = extrair_imports_fj(texto_limpo)
         resultado["invocacoes"] = extrair_invocacoes_fj(texto_limpo)
+        resultado["variaveis"] = extrair_variaveis_fj(texto_limpo)
 
     return resultado
 
@@ -1959,9 +1960,217 @@ REGEX_INVOCACOES_FJ = re.compile(
     r'(?:(?:\w+[\w\.]*)\s+)?(\w+)\s*=\s*(?:([a-zA-Z_]\w*)\.)?([a-zA-Z_]\w*)\s*\(([^)]*)\)\s*;|([a-zA-Z_]\w*)\.([a-zA-Z_]\w*)\s*\(([^)]*)\)\s*;'
 )
 
+# Declaracoes de variaveis no .fj: "NomeClasse varNome = ..." ou "NomeClasse varNome;"
+REGEX_DECL_VAR_FJ = re.compile(r'^\s*([A-Z]\w+)\s+(\w+)\s*(?:=|;)', re.MULTILINE)
+
+# Assinaturas de metodos Java: "public [static] RetType nomeMetodo(params)"
+REGEX_METODO_JAVA = re.compile(
+    r'(?:public|protected|private)\s+'
+    r'(?:(?:static|final|abstract|synchronized|native|default)\s+)*'
+    r'(\w+(?:<[^>]+>)?)\s+'
+    r'(\w+)\s*\('
+    r'([^)]*)\)',
+    re.MULTILINE
+)
+
+_TIPOS_NUMERICOS = frozenset({'int', 'Integer', 'long', 'Long', 'short', 'Short', 'byte', 'Byte'})
+
+
 def extrair_imports_fj(texto):
     """Extrai todos os imports do arquivo"""
     return REGEX_IMPORTS_FJ.findall(texto)
+
+
+def extrair_variaveis_fj(texto: str) -> dict:
+    """
+    Extrai declaracoes de variaveis tipadas de um arquivo .fj.
+    Retorna: {'nomeVar': 'NomeClasse', ...}
+    """
+    resultado = {}
+    for m in REGEX_DECL_VAR_FJ.finditer(texto):
+        resultado[m.group(2)] = m.group(1)
+    return resultado
+
+
+def extrair_assinaturas_java(caminho_java: str) -> dict:
+    """
+    Extrai assinaturas de metodos de um arquivo .java via regex.
+    Retorna: {'nomeMetodo': [{'retorno': 'int', 'params': [{'tipo': 'int', 'nome': 'x'}]}, ...]}
+    """
+    try:
+        with open(caminho_java, 'r', encoding='utf-8', errors='replace') as f:
+            texto = f.read()
+    except (OSError, IOError):
+        return {}
+
+    # Remove comentarios para nao capturar assinaturas comentadas
+    texto = re.sub(r'/\*.*?\*/', '', texto, flags=re.DOTALL)
+    texto = re.sub(r'//[^\n]*', '', texto)
+
+    resultado = {}
+    for m in REGEX_METODO_JAVA.finditer(texto):
+        retorno    = m.group(1)
+        nome       = m.group(2)
+        params_raw = m.group(3).strip()
+
+        params = []
+        if params_raw:
+            for parte in params_raw.split(','):
+                tokens = [t for t in parte.split() if not t.startswith('@')]
+                if len(tokens) >= 2:
+                    params.append({'tipo': tokens[-2], 'nome': tokens[-1]})
+                elif len(tokens) == 1:
+                    params.append({'tipo': tokens[0], 'nome': ''})
+
+        resultado.setdefault(nome, []).append({'retorno': retorno, 'params': params})
+
+    return resultado
+
+
+def _classificar_arg(arg: str) -> str:
+    """
+    Classifica o tipo de um argumento de chamada de metodo.
+    Retorna: 'string_literal' | 'int_literal' | 'null' | 'cast_int' | 'parse_int' | 'variavel'
+    """
+    arg = arg.strip()
+    if not arg:
+        return 'vazio'
+    if (arg.startswith('"') and arg.endswith('"')) or (arg.startswith("'") and arg.endswith("'")):
+        return 'string_literal'
+    if arg == 'null':
+        return 'null'
+    if re.match(r'^\((int|Integer|long|Long)\)', arg):
+        return 'cast_int'
+    if 'Integer.parseInt' in arg or 'Integer.valueOf' in arg or 'Long.parseLong' in arg:
+        return 'parse_int'
+    try:
+        int(arg)
+        return 'int_literal'
+    except ValueError:
+        pass
+    return 'variavel'
+
+
+def verificar_tipagem_estatica(hits: list, repos_aux: dict) -> tuple:
+    """
+    Verifica estaticamente (sem API) se invocacoes em .fj passam String/null onde
+    o metodo Java espera int, cruzando com as assinaturas reais dos repositorios.
+
+    Retorna (definitivos, possiveis):
+      definitivos: string literal passado onde int esperado — certeza absoluta, sem Claude
+      possiveis:   variavel ou null passado onde int esperado — ambiguo, envia ao Claude
+                   com assinatura real embutida no contexto
+
+    Cada item tem: arquivo, linha, codigo_analisado, objeto, metodo_alvo,
+                   argumento_suspeito, tipo_argumento, assinatura_java,
+                   variante_rt, metodo_substituto, severidade
+    """
+    definitivos = []
+    possiveis   = []
+
+    for h in hits:
+        arquivo    = h.get('arquivo_original', h.get('arquivo', ''))
+        imports    = h.get('imports', [])
+        invocacoes = h.get('invocacoes', [])
+        variaveis  = h.get('variaveis', {})
+
+        if not imports or not invocacoes:
+            continue
+
+        # Monta cache: NomeSimplesDaClasse -> dict de assinaturas
+        cache_sigs = {}
+        for imp in imports:
+            caminho = localizar_arquivo_repositorio(imp, repos_aux)
+            if not caminho:
+                continue
+            if not Path(caminho).exists():
+                continue
+            nome_classe = imp.split('.')[-1]
+            sigs = extrair_assinaturas_java(caminho)
+            if sigs:
+                cache_sigs[nome_classe] = sigs
+
+        if not cache_sigs:
+            continue
+
+        for inv in invocacoes:
+            objeto   = inv.get('objeto', '')
+            metodo   = inv.get('metodo', '')
+            args_raw = inv.get('argumentos', '')
+
+            if not objeto or not metodo:
+                continue
+
+            # Resolve tipo do objeto via mapa de variaveis ou tenta o proprio nome
+            tipo_objeto = variaveis.get(objeto, objeto)
+            sigs_classe = cache_sigs.get(tipo_objeto)
+
+            # Fallback: busca por correspondencia parcial (ex: var "vendas" -> "VendasProvedor")
+            if not sigs_classe:
+                for nome_classe, sigs in cache_sigs.items():
+                    if objeto.lower() in nome_classe.lower() or nome_classe.lower().startswith(objeto.lower()):
+                        sigs_classe = sigs
+                        tipo_objeto = nome_classe
+                        break
+
+            if not sigs_classe:
+                continue
+
+            overloads = sigs_classe.get(metodo, [])
+            if not overloads:
+                continue
+
+            args = [a.strip() for a in args_raw.split(',') if a.strip()]
+
+            for overload in overloads:
+                params = overload['params']
+                if params and len(params) != len(args):
+                    continue  # Aridade diferente, outro overload
+
+                for idx, param in enumerate(params):
+                    if param['tipo'] not in _TIPOS_NUMERICOS:
+                        continue
+                    if idx >= len(args):
+                        continue
+
+                    tipo_arg = _classificar_arg(args[idx])
+                    if tipo_arg in ('cast_int', 'parse_int', 'int_literal', 'vazio'):
+                        continue
+
+                    # Verifica variante RT
+                    metodo_rt  = metodo + 'RT'
+                    rt_sigs    = sigs_classe.get(metodo_rt)
+
+                    params_str = ', '.join(f"{p['tipo']} {p['nome']}".strip() for p in params)
+                    assinatura = f"{overload['retorno']} {metodo}({params_str})"
+
+                    variante_rt_str = None
+                    if rt_sigs:
+                        rt_ps = ', '.join(f"{p['tipo']} {p['nome']}".strip() for p in rt_sigs[0]['params'])
+                        variante_rt_str = f"{rt_sigs[0]['retorno']} {metodo_rt}({rt_ps})"
+
+                    item = {
+                        'arquivo':            arquivo,
+                        'linha':              inv['linha'],
+                        'codigo_analisado':   inv['codigo_analisado'],
+                        'objeto':             objeto,
+                        'metodo_alvo':        metodo,
+                        'argumento_suspeito': args[idx],
+                        'tipo_argumento':     tipo_arg,
+                        'assinatura_java':    assinatura,
+                        'variante_rt':        variante_rt_str,
+                        'metodo_substituto':  metodo_rt if rt_sigs else None,
+                        'severidade':         'CRITICO' if tipo_arg == 'string_literal' and rt_sigs else 'ADVERTENCIA',
+                    }
+
+                    if tipo_arg == 'string_literal':
+                        definitivos.append(item)
+                    else:
+                        possiveis.append(item)
+                    break  # Um achado por invocacao e suficiente
+
+    return definitivos, possiveis
+
 
 def extrair_invocacoes_fj(texto, linha_offset=1):
     """Extrai chamadas de metodos para avaliacao de tipagem (ex: RT) no LLM"""

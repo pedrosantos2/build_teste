@@ -208,12 +208,17 @@ def analisar(
                     print(f"      [RATE LIMIT] Limite excedido. Aguardando {espera}s para retentar (tentativa {tentativas+1}/5)...")
                     time.sleep(espera)
                     tentativas += 1
+                elif "529" in msg or "overloaded" in msg:
+                    espera = 20 * (2 ** tentativas)
+                    print(f"      [OVERLOADED] API sobrecarregada. Aguardando {espera}s para retentar (tentativa {tentativas+1}/5)...")
+                    time.sleep(espera)
+                    tentativas += 1
                 else:
                     print(f"      AVISO: lote {i} falhou ({e}) — pulando")
                     break
-        
+
         if tentativas == 5:
-            print(f"      ERRO: Lote {i} abortado apos 5 tentativas de Rate Limit.")
+            print(f"      ERRO: Lote {i} abortado apos 5 tentativas.")
 
     # Consolida resumo
     resumo = {
@@ -231,55 +236,67 @@ def analisar(
         "resumo":  resumo,
         "_usage":  usage_total,
     }
-def _chamar_api_tipagem(client, lote_invocacoes: list, numero_lote: int, total_lotes: int) -> dict:
+def _chamar_api_tipagem(client, lote_possiveis: list, numero_lote: int, total_lotes: int) -> dict:
+    """
+    Envia ao Claude apenas casos ambiguos (variaveis cujo tipo nao pode ser determinado
+    estaticamente), ja enriquecidos com a assinatura Java real do metodo.
+    """
     prompt = f"""Role: Analisador de Tipagem Java/.fj.
-Task: Validar chamadas de metodos e apontar incompatibilidades de tipos em argumentos.
 
-Abaixo estao as invocacoes extraidas do codigo fonte (lote {numero_lote}/{total_lotes}).
-Para cada invocacao, avalie se ha um erro de tipagem claro, especialmente focado no uso de variaveis do tipo String onde se espera int.
+Cada caso abaixo representa uma chamada de metodo em um arquivo .fj onde um argumento
+de tipo incerto (nome de variavel) e passado a um parametro que a assinatura Java real
+declara como int/Integer/long.
 
-Instrucoes Estritas:
-1. FOCO: Quando um metodo no pacote de negocios (ex: pcpb, systextil) esperar `int` e receber `String` (literal entre aspas ou variavel convertida/conhecida), sugira a substituicao pelo metodo com sufixo `RT`. 
-   Ex: `buscaValorPcpb("123")` -> `buscaValorPcpbRT("123")`
-2. FALSOS POSITIVOS: Ignore imediatamente e não relate se houver conversão/cast explícito no argumento (ex: `(int)` ou `Integer.parseInt()`).
-3. Se o argumento aparenta ser variavel do tipo String ou null, classifique como possivel erro sugerindo RT, mas marque severidade "ADVERTENCIA".
-4. Retorne EXCLUSIVAMENTE um objeto JSON valido, respeitando a estrutura abaixo, sem textos adicionais.
+Sua tarefa: determinar se o argumento e provavelmente uma String (ou null incompativel
+com int primitivo), configurando um erro de tipagem que exige uso da variante RT.
 
+Campos por caso:
+  - codigo_analisado : linha exata do .fj
+  - assinatura_java  : assinatura real do metodo no repositorio Java
+  - variante_rt      : assinatura da variante RT (se existir)
+  - argumento_suspeito : argumento especifico em analise (nome de variavel)
+
+REGRAS ESTRITAS:
+1. REPORTAR se o nome da variavel sugere String de CNPJ/codigo (ex: termina em _r, _s,
+   _str, _cnpj, _cgc, contem "cnpj", "cgc", "cod") E a assinatura espera int → ADVERTENCIA
+2. REPORTAR se o argumento for null E o parametro for int primitivo (nao Integer) → ADVERTENCIA
+3. NAO REPORTAR se houver cast explicito no codigo_analisado: (int), Integer.parseInt, etc.
+4. NAO REPORTAR se nao for possivel determinar o tipo com razoavel confianca.
+5. Se variante_rt for null (sem alternativa RT), ainda assim reporte mas sem metodo_substituto.
+
+Retorne EXCLUSIVAMENTE JSON valido, sem texto adicional:
 {{
   "inconsistencias": [
     {{
-      "arquivo": "<caminho_do_arquivo>",
-      "linha": <linha_da_invocacao>,
+      "arquivo": "<caminho>",
+      "linha": <numero>,
       "codigo_analisado": "<codigo>",
       "chamada": {{
         "objeto": "<obj>",
         "metodo_alvo": "<metodo>",
-        "argumentos_passados": "<argumentos_brutos>"
+        "argumentos_passados": "<arg>"
       }},
       "correcao_sugerida": {{
         "aplicar_sufixo_rt": true,
-        "metodo_substituto": "<MetodoComSufixoRT>"
+        "metodo_substituto": "<MetodoRT ou null>"
       }},
       "severidade": "ADVERTENCIA"
     }}
   ]
 }}
 
-LOTE DE INVOCACOES:
-{json.dumps(lote_invocacoes, indent=2, ensure_ascii=False)}
+CASOS AMBIGUOS — lote {numero_lote}/{total_lotes}:
+{json.dumps(lote_possiveis, indent=2, ensure_ascii=False)}
 """
 
     response = client.messages.create(
         model="claude-sonnet-4-6",
-        max_tokens=4096,
+        max_tokens=2048,
         temperature=0,
-        messages=[
-            {"role": "user", "content": prompt}
-        ]
+        messages=[{"role": "user", "content": prompt}]
     )
-    
+
     raw = response.content[0].text.strip()
-    # Remove markdown code blocks se o modelo ainda adicionar
     if raw.startswith("```json"):
         raw = raw[7:]
     if raw.startswith("```"):
@@ -289,47 +306,87 @@ LOTE DE INVOCACOES:
 
     return json.loads(raw.strip()), response.usage
 
+
 def analisar_tipagem(hits: List[Dict[str, Any]], repos_aux: dict = None) -> dict:
     """
-    Funcao focada em encontrar incompatibilidade de Tipagem usando o Claude.
+    Detecta incompatibilidades de tipagem (String passada onde int esperado) em dois passos:
+
+    Passo 1 — Estatico (zero tokens):
+      Cruza as invocacoes do .fj com as assinaturas Java reais dos repositorios.
+      Casos definitivos (string literal onde int esperado) sao reportados diretamente.
+
+    Passo 2 — Claude apenas para casos ambiguos (variaveis):
+      Envia somente os casos onde o tipo do argumento e incerto, mas com a assinatura
+      Java real embutida no contexto — prompts muito menores e mais precisos.
     """
-    client = anthropic.Anthropic()
-    
-    # hits aqui tem o formato: [{"arquivo": "...", "invocacoes": [{...}, {...}]}]
-    todas_invocacoes = []
-    for h in hits:
-        if "invocacoes" in h and h["invocacoes"]:
-            for inv in h["invocacoes"]:
-                inv["arquivo"] = h.get("arquivo", "desconhecido")
-                todas_invocacoes.append(inv)
-                
-    if not todas_invocacoes:
-        return {"inconsistencias": [], "_usage": {}}
-        
-    lotes = [todas_invocacoes[i:i + 30] for i in range(0, len(todas_invocacoes), 30)]
-    total_lotes = len(lotes)
-    
-    todas_inconsistencias = []
+    import grep_engine
+
+    repos_aux   = repos_aux or {}
     usage_total = {"input_tokens": 0, "output_tokens": 0}
-    
+    todas_inconsistencias = []
+
+    # --- Passo 1: analise estatica gratuita ---
+    definitivos, possiveis = grep_engine.verificar_tipagem_estatica(hits, repos_aux)
+
+    for item in definitivos:
+        todas_inconsistencias.append({
+            "arquivo":          item["arquivo"],
+            "linha":            item["linha"],
+            "codigo_analisado": item["codigo_analisado"],
+            "chamada": {
+                "objeto":              item["objeto"],
+                "metodo_alvo":         item["metodo_alvo"],
+                "argumentos_passados": item["argumento_suspeito"],
+            },
+            "correcao_sugerida": {
+                "aplicar_sufixo_rt": item["metodo_substituto"] is not None,
+                "metodo_substituto": item["metodo_substituto"],
+            },
+            "assinatura_detectada": item["assinatura_java"],
+            "variante_rt":          item["variante_rt"],
+            "severidade":           item["severidade"],
+            "origem":               "estatico",
+        })
+
+    if definitivos:
+        print(f"      [Tipagem] {len(definitivos)} incompatibilidade(s) definitiva(s) detectada(s) estaticamente (0 tokens).")
+
+    if not possiveis:
+        if not definitivos:
+            print(f"      [Tipagem] Nenhuma invocacao cruzou com assinaturas dos repositorios — nada a verificar.")
+        return {"inconsistencias": todas_inconsistencias, "_usage": usage_total}
+
+    # --- Passo 2: Claude apenas para casos ambiguos ---
+    print(f"      [Tipagem] {len(possiveis)} caso(s) ambiguo(s) (variaveis) enviados ao Claude com assinaturas reais...")
+
+    client = anthropic.Anthropic()
+
+    LOTE_TIPAGEM = 20
+    lotes       = [possiveis[i:i + LOTE_TIPAGEM] for i in range(0, len(possiveis), LOTE_TIPAGEM)]
+    total_lotes = len(lotes)
+
     for i, lote in enumerate(lotes, 1):
-        print(f"      [Tipagem] Lote {i}/{total_lotes} ({len(lote)} invocacoes)...")
+        print(f"      [Tipagem] Lote {i}/{total_lotes} ({len(lote)} casos)...")
         tentativas = 0
         while tentativas < 3:
             try:
                 res, usage = _chamar_api_tipagem(client, lote, i, total_lotes)
                 todas_inconsistencias.extend(res.get("inconsistencias", []))
-                usage_total["input_tokens"] += usage.input_tokens
+                usage_total["input_tokens"]  += usage.input_tokens
                 usage_total["output_tokens"] += usage.output_tokens
+                break
+            except json.JSONDecodeError as e:
+                print(f"      [Tipagem] AVISO: lote {i} retornou JSON invalido ({e}) — pulando")
                 break
             except Exception as e:
                 msg = str(e).lower()
-                if "429" in msg or "rate" in msg:
+                if "429" in msg or "rate" in msg or "529" in msg or "overloaded" in msg:
                     espera = 15 * (2 ** tentativas)
+                    print(f"      [Tipagem] API indisponivel. Aguardando {espera}s para retentar (tentativa {tentativas+1}/3)...")
                     time.sleep(espera)
                     tentativas += 1
                 else:
                     print(f"      [Tipagem] AVISO: lote {i} falhou ({e})")
                     break
-                    
+
     return {"inconsistencias": todas_inconsistencias, "_usage": usage_total}
