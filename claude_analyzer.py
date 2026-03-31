@@ -289,7 +289,7 @@ LOTE DE INVOCACOES:
 
     return json.loads(raw.strip()), response.usage
 
-def analisar_tipagem(hits: List[Dict[str, Any]]) -> dict:
+def analisar_tipagem(hits: List[Dict[str, Any]], repos_aux: dict = None) -> dict:
     """
     Funcao focada em encontrar incompatibilidade de Tipagem usando o Claude.
     """
