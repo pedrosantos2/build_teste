@@ -43,6 +43,11 @@ DEFAULT_EXEMPLOS = Path(__file__).parent / "exemplos"
 BASE_WEB  = Path("/Systextil/workspace/WEB/dev")
 BASE_CNPJ = Path("/Systextil/workspace/WEB/prod/CNPJ")
 
+# Paths fixos dos repositórios auxiliares (para checagem de Tipagem / RT)
+BASE_PLUGINS  = BASE_CNPJ / "systextil-plugins-api"
+BASE_BO       = BASE_CNPJ / "systextil-bo"
+BASE_FUNCTION = BASE_CNPJ / "systextil-function"
+
 # Extensoes e pastas vem do config.py
 
 ICONES = {
@@ -77,6 +82,14 @@ def parse_args():
                    help="Branch WEB/principal (auto-detecta: WEB, main, master)")
     p.add_argument("--branch-cnpj", default=None,
                    help="Branch CNPJ (auto-detecta: origin/CNPJ, CNPJ)")
+    
+    # Novos argumentos para a analise de tipagem RT
+    p.add_argument("--dir-plugins", default=None,
+                   help="Path do workspace do systextil-plugins-api")
+    p.add_argument("--dir-bo", default=None,
+                   help="Path do workspace do systextil-bo")
+    p.add_argument("--dir-function", default=None,
+                   help="Path do workspace do systextil-function")
     return p.parse_args()
 
 
@@ -668,10 +681,15 @@ def main():
     if args.dry_run:
         print(f"\n[4/4] --dry-run: pulando Claude para Tipagem.")
     else:
-        # Pega as invocacoes de todos os resultados da estatica
-        # "resultados" tem dicts com 'invocacoes' gerados pelo grep_engine
+        # Repositorios auxiliares preenchidos via argumentos do Jenkins ou diretorios globais default
+        repos_aux = {
+            "plugins_api": args.dir_plugins or str(BASE_PLUGINS),
+            "bo": args.dir_bo or str(BASE_BO),
+            "function": args.dir_function or str(BASE_FUNCTION)
+        }
+        
         print(f"\n[4/4] Verificando Incompatibilidades de Tipagem (ex: RT)...")
-        resultado_tipagem = analisar_tipagem(resultados)
+        resultado_tipagem = analisar_tipagem(resultados, repos_aux=repos_aux)
         
         inconsistencias = resultado_tipagem.get("inconsistencias", [])
         uso_tipagem = resultado_tipagem.get("_usage", {})
