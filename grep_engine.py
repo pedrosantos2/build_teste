@@ -175,6 +175,20 @@ REGEX_METODO_JAVA = re.compile(
 
 _TIPOS_NUMERICOS = frozenset({'int', 'Integer', 'long', 'Long', 'short', 'Short', 'byte', 'Byte'})
 
+# Sufixos que indicam que a variavel e uma String de CNPJ alfanumerico dividido
+# _r = raiz (parte numerica inicial)  _o = ordem (parte numerica complementar)
+_RE_CNPJ_SPLIT_SUFIXO = re.compile(r'_[ro]$', re.IGNORECASE)
+
+
+def _e_arg_cnpj_split(arg: str) -> bool:
+    """
+    Retorna True se o argumento e uma variavel com sufixo CNPJ-split (_r ou _o).
+    Esses sufixos indicam que a variavel armazena a parte alfanumerica (String) do CNPJ.
+    Ex: cnpj_r, cgc_fornec_r, cnpj_cli_o, cgc_o
+    Quando passados onde o Java espera int, representam erro de tipagem definitivo.
+    """
+    return bool(_RE_CNPJ_SPLIT_SUFIXO.search(arg.strip()))
+
 
 # ============================================================
 # EXTRATORES (para .fj e .java)
@@ -584,7 +598,11 @@ def verificar_tipagem_estatica(hits: list, repos_aux: dict) -> tuple:
                     if tipo_arg in ('cast_int', 'parse_int', 'int_literal', 'vazio'):
                         continue
 
-                    # Verifica variante RT
+                    # Variavel com sufixo _r / _o indica String de CNPJ dividido.
+                    # Ex: cnpj_r, cgc_fornec_o passados onde Java espera int -> bug definitivo.
+                    e_cnpj_split = (tipo_arg == 'variavel' and _e_arg_cnpj_split(args[idx]))
+
+                    # Verifica variante RT (metodo + sufixo RT)
                     metodo_rt  = metodo + 'RT'
                     rt_sigs    = sigs_classe.get(metodo_rt)
 
@@ -595,6 +613,8 @@ def verificar_tipagem_estatica(hits: list, repos_aux: dict) -> tuple:
                     if rt_sigs:
                         rt_ps = ', '.join(f"{p['tipo']} {p['nome']}".strip() for p in rt_sigs[0]['params'])
                         variante_rt_str = f"{rt_sigs[0]['retorno']} {metodo_rt}({rt_ps})"
+
+                    e_definitivo = tipo_arg == 'string_literal' or e_cnpj_split
 
                     item = {
                         'arquivo':            arquivo,
@@ -607,10 +627,10 @@ def verificar_tipagem_estatica(hits: list, repos_aux: dict) -> tuple:
                         'assinatura_java':    assinatura,
                         'variante_rt':        variante_rt_str,
                         'metodo_substituto':  metodo_rt if rt_sigs else None,
-                        'severidade':         'CRITICO' if tipo_arg == 'string_literal' and rt_sigs else 'ADVERTENCIA',
+                        'severidade':         'CRITICO' if e_definitivo and rt_sigs else 'ADVERTENCIA',
                     }
 
-                    if tipo_arg == 'string_literal':
+                    if e_definitivo:
                         definitivos.append(item)
                     else:
                         possiveis.append(item)

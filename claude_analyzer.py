@@ -31,12 +31,15 @@ Campos por caso:
   - argumento_suspeito : argumento especifico em analise (nome de variavel)
 
 REGRAS ESTRITAS:
-1. REPORTAR se o nome da variavel sugere String de CNPJ/codigo (ex: termina em _r, _s,
-   _str, _cnpj, _cgc, contem "cnpj", "cgc", "cod") E a assinatura espera int → ADVERTENCIA
-2. REPORTAR se o argumento for null E o parametro for int primitivo (nao Integer) → ADVERTENCIA
-3. NAO REPORTAR se houver cast explicito no codigo_analisado: (int), Integer.parseInt, etc.
-4. NAO REPORTAR se nao for possivel determinar o tipo com razoavel confianca.
-5. Se variante_rt for null (sem alternativa RT), ainda assim reporte mas sem metodo_substituto.
+1. REPORTAR se o argumento termina em _r ou _o (ex: cnpj_r, cgc_fornec_r, cnpj_cli_o) E
+   a assinatura Java espera int/Integer → CRITICO se variante_rt existir, ADVERTENCIA caso contrario.
+   Esses sufixos indicam CNPJ alfanumerico dividido (raiz/_r e ordem/_o) armazenado como String.
+2. REPORTAR se o nome da variavel contem cnpj, cgc, ou termina em _cnpj/_cgc/_str/_s
+   E a assinatura espera int → ADVERTENCIA
+3. REPORTAR se o argumento for null E o parametro for int primitivo (nao Integer) → ADVERTENCIA
+4. NAO REPORTAR se houver cast explicito no codigo_analisado: (int), Integer.parseInt, etc.
+5. NAO REPORTAR se nao for possivel determinar o tipo com razoavel confianca.
+6. Se variante_rt for null (sem alternativa RT), ainda assim reporte mas sem metodo_substituto.
 
 Retorne EXCLUSIVAMENTE JSON valido, sem texto adicional:
 {{
