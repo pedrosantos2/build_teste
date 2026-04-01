@@ -22,7 +22,7 @@ de tipo incerto (nome de variavel) e passado a um parametro que a assinatura Jav
 declara como int/Integer/long.
 
 Sua tarefa: determinar se o argumento e provavelmente uma String (ou null incompativel
-com int primitivo), configurando um erro de tipagem que exige uso da variante RT.
+com int primitivo), configurando um erro de tipagem que exige uso de uma alternativa (variante RT ou conversao de objeto para CNPJ).
 
 Campos por caso:
   - codigo_analisado : linha exata do .fj
@@ -39,7 +39,7 @@ REGRAS ESTRITAS:
 3. REPORTAR se o argumento for null E o parametro for int primitivo (nao Integer) → ADVERTENCIA
 4. NAO REPORTAR se houver cast explicito no codigo_analisado: (int), Integer.parseInt, etc.
 5. NAO REPORTAR se nao for possivel determinar o tipo com razoavel confianca.
-6. Se variante_rt for null (sem alternativa RT), ainda assim reporte mas sem metodo_substituto.
+6. Se variante_rt for null (sem alternativa (variante RT ou conversao de objeto para CNPJ)), ainda assim reporte mas sem metodo_substituto.
 
 Retorne EXCLUSIVAMENTE JSON valido, sem texto adicional:
 {{
@@ -54,8 +54,8 @@ Retorne EXCLUSIVAMENTE JSON valido, sem texto adicional:
         "argumentos_passados": "<arg>"
       }},
       "correcao_sugerida": {{
-        "aplicar_sufixo_rt": true,
-        "metodo_substituto": "<MetodoRT ou null>"
+        "aplicar_conversao": true,
+        "metodo_substituto": "<Metodo Alternativo ou null>"
       }},
       "severidade": "ADVERTENCIA"
     }}
@@ -103,9 +103,16 @@ def analisar_tipagem(hits: List[Dict[str, Any]], repos_aux: dict = None) -> dict
     todas_inconsistencias = []
 
     # --- Passo 1: analise estatica gratuita ---
-    definitivos, possiveis = grep_engine.verificar_tipagem_estatica(hits, repos_aux)
+    definitivos, possiveis, sem_cobertura = grep_engine.verificar_tipagem_estatica(hits, repos_aux)
 
     for item in definitivos:
+        motivo = item.get('motivo', '')
+        if motivo == 'criar_variante_rt_ou_cnpj':
+            descricao_acao = f"Metodo '{item['metodo_alvo']}RT' ou '{item['metodo_alvo']}(CNPJ)' nao existe — precisa ser criado no repositorio"
+        elif motivo == 'usar_objeto_cnpj':
+            descricao_acao = f"Usar '{item['metodo_substituto']}(CNPJ)' no lugar de '{item['metodo_alvo']}' pois esta disponivel"
+        else:
+            descricao_acao = f"Usar '{item['metodo_substituto']}' no lugar de '{item['metodo_alvo']}'"
         todas_inconsistencias.append({
             "arquivo":          item["arquivo"],
             "linha":            item["linha"],
@@ -116,20 +123,57 @@ def analisar_tipagem(hits: List[Dict[str, Any]], repos_aux: dict = None) -> dict
                 "argumentos_passados": item["argumento_suspeito"],
             },
             "correcao_sugerida": {
-                "aplicar_sufixo_rt": item["metodo_substituto"] is not None,
+                "aplicar_conversao": item["metodo_substituto"] is not None,
                 "metodo_substituto": item["metodo_substituto"],
+                "descricao":         descricao_acao,
             },
             "assinatura_detectada": item["assinatura_java"],
             "variante_rt":          item["variante_rt"],
             "severidade":           item["severidade"],
+            "motivo":               item.get("motivo"),
             "origem":               "estatico",
         })
 
-    if definitivos:
-        print(f"      [Tipagem] {len(definitivos)} incompatibilidade(s) definitiva(s) detectada(s) estaticamente (0 tokens).")
+    # Casos sem cobertura: metodo/classe nao encontrado nos repos
+    for item in sem_cobertura:
+        motivo = item.get('motivo', '')
+        if motivo == 'metodo_nao_encontrado_no_repo':
+            descricao_acao = (
+                f"Metodo '{item['metodo_alvo']}' nao encontrado no repositorio — "
+                f"verifique se '{item['metodo_alvo']}RT' precisa ser criado"
+            )
+        else:
+            descricao_acao = (
+                f"Classe nao encontrada nos repos (function/bo/plugins-api) — "
+                f"verifique se '{item['metodo_alvo']}RT' precisa ser criado"
+            )
+        todas_inconsistencias.append({
+            "arquivo":          item["arquivo"],
+            "linha":            item["linha"],
+            "codigo_analisado": item["codigo_analisado"],
+            "chamada": {
+                "objeto":              item["objeto"],
+                "metodo_alvo":         item["metodo_alvo"],
+                "argumentos_passados": item["argumento_suspeito"],
+            },
+            "correcao_sugerida": {
+                "aplicar_conversao": True,
+                "metodo_substituto": item["metodo_substituto"],
+                "descricao":         descricao_acao,
+            },
+            "assinatura_detectada": None,
+            "variante_rt":          None,
+            "severidade":           "ADVERTENCIA",
+            "motivo":               motivo,
+            "origem":               "estatico_sem_cobertura",
+        })
+
+    total_estatico = len(definitivos) + len(sem_cobertura)
+    if total_estatico:
+        print(f"      [Tipagem] {len(definitivos)} definitivo(s) + {len(sem_cobertura)} sem cobertura detectado(s) estaticamente (0 tokens).")
 
     if not possiveis:
-        if not definitivos:
+        if not total_estatico:
             print(f"      [Tipagem] Nenhuma invocacao cruzou com assinaturas dos repositorios — nada a verificar.")
         return {"inconsistencias": todas_inconsistencias, "_usage": usage_total}
 

@@ -234,10 +234,18 @@ def extrair_assinaturas_java(caminho_java: str) -> dict:
         if params_raw:
             for parte in params_raw.split(','):
                 tokens = [t for t in parte.split() if not t.startswith('@')]
+                is_varargs = False
                 if len(tokens) >= 2:
-                    params.append({'tipo': tokens[-2], 'nome': tokens[-1]})
+                    tipo_raw = tokens[-2]
+                    if tipo_raw.endswith('...'):
+                        tipo_raw = tipo_raw[:-3]
+                        is_varargs = True
+                    # strip generics: List<Integer> -> List
+                    tipo_raw = re.sub(r'<.*>', '', tipo_raw)
+                    nome_raw = tokens[-1].lstrip('.')  # varargs nome pode vir como "...nome"
+                    params.append({'tipo': tipo_raw, 'nome': nome_raw, 'varargs': is_varargs})
                 elif len(tokens) == 1:
-                    params.append({'tipo': tokens[0], 'nome': ''})
+                    params.append({'tipo': tokens[0], 'nome': '', 'varargs': False})
 
         resultado.setdefault(nome, []).append({'retorno': retorno, 'params': params})
 
@@ -526,8 +534,9 @@ def verificar_tipagem_estatica(hits: list, repos_aux: dict) -> tuple:
                    argumento_suspeito, tipo_argumento, assinatura_java,
                    variante_rt, metodo_substituto, severidade
     """
-    definitivos = []
-    possiveis   = []
+    definitivos   = []
+    possiveis     = []
+    sem_cobertura = []  # metodo/classe nao encontrado nos repos
 
     for h in hits:
         arquivo    = h.get('arquivo_original', h.get('arquivo', ''))
@@ -539,20 +548,23 @@ def verificar_tipagem_estatica(hits: list, repos_aux: dict) -> tuple:
             continue
 
         # Monta cache: NomeSimplesDaClasse -> dict de assinaturas
-        cache_sigs = {}
-        for imp in imports:
-            caminho = localizar_arquivo_repositorio(imp, repos_aux)
-            if not caminho:
-                continue
-            if not Path(caminho).exists():
-                continue
-            nome_classe = imp.split('.')[-1]
-            sigs = extrair_assinaturas_java(caminho)
-            if sigs:
-                cache_sigs[nome_classe] = sigs
+        # Tambem rastreia quais nomes de classe vieram de imports reconhecidos
+        # (mesmo que o arquivo nao exista no disco ainda)
+        cache_sigs          = {}
+        cache_caminhos      = {}  # NomeSimplesDaClasse -> caminho fisico do .java
+        classes_dos_imports = set()  # nomes simples de todas as classes importadas
 
-        if not cache_sigs:
-            continue
+        for imp in imports:
+            nome_classe = imp.split('.')[-1]
+            caminho = localizar_arquivo_repositorio(imp, repos_aux)
+            if caminho:
+                # Import reconhecido pelo prefixo — classe pertence a um dos repos
+                classes_dos_imports.add(nome_classe)
+                cache_caminhos[nome_classe] = caminho  # registra mesmo se nao existir no disco
+                if Path(caminho).exists():
+                    sigs = extrair_assinaturas_java(caminho)
+                    if sigs:
+                        cache_sigs[nome_classe] = sigs
 
         for inv in invocacoes:
             objeto   = inv.get('objeto', '')
@@ -561,6 +573,8 @@ def verificar_tipagem_estatica(hits: list, repos_aux: dict) -> tuple:
 
             if not objeto or not metodo:
                 continue
+
+            args = [a.strip() for a in args_raw.split(',') if a.strip()]
 
             # Resolve tipo do objeto via mapa de variaveis ou tenta o proprio nome
             tipo_objeto = variaveis.get(objeto, objeto)
@@ -574,19 +588,78 @@ def verificar_tipagem_estatica(hits: list, repos_aux: dict) -> tuple:
                         tipo_objeto = nome_classe
                         break
 
+            # Caminho fisico do .java dessa classe (pode nao existir no disco ainda)
+            caminho_java = cache_caminhos.get(tipo_objeto)
+            if not caminho_java:
+                for nc, cp in cache_caminhos.items():
+                    if tipo_objeto.lower() in nc.lower() or nc.lower().startswith(tipo_objeto.lower()):
+                        caminho_java = cp
+                        tipo_objeto  = nc
+                        break
+
+            # Verifica se o tipo pertence a um import reconhecido mas sem arquivo no disco
+            tipo_nos_imports = tipo_objeto in classes_dos_imports or bool(caminho_java)
+
             if not sigs_classe:
+                # Se o tipo nao e de um import reconhecido, nao temos como avaliar
+                if not tipo_nos_imports:
+                    continue
+                # Tipo e de um repo conhecido mas o arquivo nao foi encontrado no disco.
+                # Reporta apenas se houver argumento definitivamente suspeito (string literal ou _r/_o).
+                for arg in args:
+                    tipo_arg = _classificar_arg(arg)
+                    e_cnpj_split = tipo_arg == 'variavel' and _e_arg_cnpj_split(arg)
+                    if tipo_arg == 'string_literal' or e_cnpj_split:
+                        sem_cobertura.append({
+                            'arquivo':            arquivo,
+                            'linha':              inv['linha'],
+                            'codigo_analisado':   inv['codigo_analisado'],
+                            'objeto':             objeto,
+                            'metodo_alvo':        metodo,
+                            'argumento_suspeito': arg,
+                            'tipo_argumento':     tipo_arg,
+                            'assinatura_java':    None,
+                            'variante_rt':        None,
+                            'metodo_substituto':  metodo + 'RT',
+                            'caminho_java':       caminho_java,
+                            'severidade':         'ADVERTENCIA',
+                            'motivo':             'classe_nao_encontrada_nos_repos',
+                        })
+                        break
                 continue
 
             overloads = sigs_classe.get(metodo, [])
             if not overloads:
+                # Metodo nao existe na classe — reporta se arg suspeito presente
+                for arg in args:
+                    tipo_arg = _classificar_arg(arg)
+                    e_cnpj_split = tipo_arg == 'variavel' and _e_arg_cnpj_split(arg)
+                    if tipo_arg == 'string_literal' or e_cnpj_split:
+                        sem_cobertura.append({
+                            'arquivo':            arquivo,
+                            'linha':              inv['linha'],
+                            'codigo_analisado':   inv['codigo_analisado'],
+                            'objeto':             objeto,
+                            'metodo_alvo':        metodo,
+                            'argumento_suspeito': arg,
+                            'tipo_argumento':     tipo_arg,
+                            'assinatura_java':    None,
+                            'variante_rt':        None,
+                            'metodo_substituto':  metodo + 'RT',
+                            'caminho_java':       caminho_java,
+                            'severidade':         'ADVERTENCIA',
+                            'motivo':             'metodo_nao_encontrado_no_repo',
+                        })
+                        break
                 continue
-
-            args = [a.strip() for a in args_raw.split(',') if a.strip()]
 
             for overload in overloads:
                 params = overload['params']
-                if params and len(params) != len(args):
+                has_varargs = params and params[-1].get('varargs', False)
+                if params and not has_varargs and len(params) != len(args):
                     continue  # Aridade diferente, outro overload
+                if params and has_varargs and len(args) < len(params) - 1:
+                    continue  # Nem os parametros fixos foram fornecidos
 
                 for idx, param in enumerate(params):
                     if param['tipo'] not in _TIPOS_NUMERICOS:
@@ -599,20 +672,40 @@ def verificar_tipagem_estatica(hits: list, repos_aux: dict) -> tuple:
                         continue
 
                     # Variavel com sufixo _r / _o indica String de CNPJ dividido.
-                    # Ex: cnpj_r, cgc_fornec_o passados onde Java espera int -> bug definitivo.
                     e_cnpj_split = (tipo_arg == 'variavel' and _e_arg_cnpj_split(args[idx]))
 
+                    # Verifica se existe um overload no proprio metodo alvo que recebe um objeto (CNPJ)
+                    sobreposicoes_mesmo_nome = sigs_classe.get(metodo, [])
+                    sig_cnpj = None
+                    for o_same in sobreposicoes_mesmo_nome:
+                        p_same = o_same['params']
+                        if len(p_same) == 1 and p_same[0]['tipo'].upper() == 'CNPJ':
+                            sig_cnpj = o_same
+                            break
+
                     # Verifica variante RT (metodo + sufixo RT)
-                    metodo_rt  = metodo + 'RT'
-                    rt_sigs    = sigs_classe.get(metodo_rt)
+                    metodo_rt = metodo + 'RT'
+                    rt_sigs = sigs_classe.get(metodo_rt) or sigs_classe.get(metodo + '_rt')
 
                     params_str = ', '.join(f"{p['tipo']} {p['nome']}".strip() for p in params)
                     assinatura = f"{overload['retorno']} {metodo}({params_str})"
 
                     variante_rt_str = None
-                    if rt_sigs:
+                    metodo_substituto = None
+
+                    if sig_cnpj:
+                        cnpj_ps = ', '.join(f"{p['tipo']} {p['nome']}".strip() for p in sig_cnpj['params'])
+                        variante_rt_str = f"{sig_cnpj['retorno']} {metodo}({cnpj_ps})"
+                        motivo = 'usar_objeto_cnpj'
+                        metodo_substituto = metodo
+                    elif rt_sigs:
                         rt_ps = ', '.join(f"{p['tipo']} {p['nome']}".strip() for p in rt_sigs[0]['params'])
-                        variante_rt_str = f"{rt_sigs[0]['retorno']} {metodo_rt}({rt_ps})"
+                        nome_rt = metodo_rt if sigs_classe.get(metodo_rt) else metodo + '_rt'
+                        variante_rt_str = f"{rt_sigs[0]['retorno']} {nome_rt}({rt_ps})"
+                        motivo = 'usar_variante_rt'
+                        metodo_substituto = nome_rt
+                    else:
+                        motivo = 'criar_variante_rt_ou_cnpj'
 
                     e_definitivo = tipo_arg == 'string_literal' or e_cnpj_split
 
@@ -626,8 +719,10 @@ def verificar_tipagem_estatica(hits: list, repos_aux: dict) -> tuple:
                         'tipo_argumento':     tipo_arg,
                         'assinatura_java':    assinatura,
                         'variante_rt':        variante_rt_str,
-                        'metodo_substituto':  metodo_rt if rt_sigs else None,
-                        'severidade':         'CRITICO' if e_definitivo and rt_sigs else 'ADVERTENCIA',
+                        'metodo_substituto':  metodo_substituto,
+                        'caminho_java':       caminho_java,
+                        'severidade':         'CRITICO' if e_definitivo and (rt_sigs or sig_cnpj) else 'ADVERTENCIA',
+                        'motivo':             motivo,
                     }
 
                     if e_definitivo:
@@ -636,4 +731,4 @@ def verificar_tipagem_estatica(hits: list, repos_aux: dict) -> tuple:
                         possiveis.append(item)
                     break  # Um achado por invocacao e suficiente
 
-    return definitivos, possiveis
+    return definitivos, possiveis, sem_cobertura
