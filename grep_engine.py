@@ -614,6 +614,10 @@ def verificar_tipagem_estatica(hits: list, repos_aux: dict) -> tuple:
             # Se ja estiver sendo envelopado como objeto CNPJ, nao e erro de tipagem RT
             if 'CNPJ.get(' in args_raw:
                 continue
+                
+            # Se o metodo alvo ja e a variante RT documentada, nao precisamos fazer hook de tipagem
+            if metodo.endswith('RT') or metodo.endswith('_rt'):
+                continue
 
             args = [a.strip() for a in args_raw.split(',') if a.strip()]
 
