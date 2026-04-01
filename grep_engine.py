@@ -278,29 +278,65 @@ def _classificar_arg(arg: str) -> str:
 
 
 def extrair_invocacoes_fj(texto, linha_offset=1):
-    """Extrai chamadas de metodos para avaliacao de tipagem (ex: RT) no LLM"""
+    """
+    Extrai chamadas de metodos iterando com balanceamento de parenteses.
+    Isso substitui o uso direto de re.DOTALL que quebrava em cascata de parênteses
+    (como em overloads aninhados, ex: val = parseInt(String.valueOf(x), base)).
+    """
     resultados = []
-    linhas = texto.splitlines()
-    for numero_linha, conteudo_linha in enumerate(linhas, start=linha_offset):
-        for match in REGEX_INVOCACOES_FJ.finditer(conteudo_linha):
-            if match.group(3):
-                resultados.append({
-                    'linha': numero_linha,
-                    'atribuido_a': match.group(1),
-                    'objeto': match.group(2) or '',
-                    'metodo': match.group(3),
-                    'argumentos': match.group(4) or '',
-                    'codigo_analisado': conteudo_linha.strip()
-                })
-            elif match.group(6):
-                resultados.append({
-                    'linha': numero_linha,
-                    'atribuido_a': None,
-                    'objeto': match.group(5),
-                    'metodo': match.group(6),
-                    'argumentos': match.group(7) or '',
-                    'codigo_analisado': conteudo_linha.strip()
-                })
+    
+    # Captura: [atribuicao =]? [objeto.]metodo(
+    pattern = re.compile(r'(?:(?:([a-zA-Z_]\w*)\s*=)\s*)?(?:([^=;\(\)\s]+)\.)?([a-zA-Z_]\w*)\s*\(')
+    
+    pos = 0
+    while True:
+        match = pattern.search(texto, pos)
+        if not match:
+            break
+            
+        m_start = match.end() - 1
+        parens = 0
+        in_string = False
+        escape = False
+        args_end = -1
+        
+        for i in range(m_start, len(texto)):
+            c = texto[i]
+            if escape:
+                escape = False
+                continue
+            if c == '\\':
+                escape = True
+                continue
+            if c == '"':
+                in_string = not in_string
+                continue
+                
+            if not in_string:
+                if c == '(':
+                    parens += 1
+                elif c == ')':
+                    parens -= 1
+                    if parens == 0:
+                        args_end = i
+                        break
+                        
+        if args_end != -1:
+            atrib, obj, method = match.group(1), match.group(2), match.group(3)
+            args = texto[m_start+1:args_end]
+            linha = texto.count('\n', 0, m_start) + linha_offset
+            resultados.append({
+                'linha': linha,
+                'atribuido_a': atrib,
+                'objeto': obj or '',
+                'metodo': method,
+                'argumentos': args.replace('\n', ' '),
+                'codigo_analisado': (match.group(0).replace('\n', ' ') + args.replace('\n', ' ') + ')')
+            })
+            pos = args_end + 1
+        else:
+            pos = match.end()
+            
     return resultados
 
 
@@ -573,6 +609,10 @@ def verificar_tipagem_estatica(hits: list, repos_aux: dict) -> tuple:
             args_raw = inv.get('argumentos', '')
 
             if not objeto or not metodo:
+                continue
+
+            # Se ja estiver sendo envelopado como objeto CNPJ, nao e erro de tipagem RT
+            if 'CNPJ.get(' in args_raw:
                 continue
 
             args = [a.strip() for a in args_raw.split(',') if a.strip()]
