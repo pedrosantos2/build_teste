@@ -157,7 +157,8 @@ def _achar(lista, num_linha, bug, tipo, msg):
 REGEX_IMPORTS_FJ = re.compile(r'^import\s+([\w\.]+)(?:\.\*)?\s*;', re.MULTILINE)
 
 REGEX_INVOCACOES_FJ = re.compile(
-    r'(?:(?:\w+[\w\.]*)\s+)?(\w+)\s*=\s*(?:([a-zA-Z_]\w*)\.)?([a-zA-Z_]\w*)\s*\(([^)]*)\)\s*;|([a-zA-Z_]\w*)\.([a-zA-Z_]\w*)\s*\(([^)]*)\)\s*;'
+    r'(?:(?:\w+[\w\.]*)\s+)?(\w+)\s*=\s*(?:([a-zA-Z_#0-9][\w\.#]*)\.)?([a-zA-Z_]\w*)\s*\((.*?)\)\s*;|([a-zA-Z_#0-9][\w\.#]*)\.([a-zA-Z_]\w*)\s*\((.*?)\)\s*;',
+    re.DOTALL
 )
 
 # Declaracoes de variaveis no .fj: "NomeClasse varNome = ..." ou "NomeClasse varNome;"
@@ -605,11 +606,11 @@ def verificar_tipagem_estatica(hits: list, repos_aux: dict) -> tuple:
                 if not tipo_nos_imports:
                     continue
                 # Tipo e de um repo conhecido mas o arquivo nao foi encontrado no disco.
-                # Reporta apenas se houver argumento definitivamente suspeito (string literal ou _r/_o).
+                # Reporta apenas se houver argumento definitivamente suspeito (apenas sufixo _r/_o em sem_cobertura).
                 for arg in args:
                     tipo_arg = _classificar_arg(arg)
                     e_cnpj_split = tipo_arg == 'variavel' and _e_arg_cnpj_split(arg)
-                    if tipo_arg == 'string_literal' or e_cnpj_split:
+                    if e_cnpj_split:
                         sem_cobertura.append({
                             'arquivo':            arquivo,
                             'linha':              inv['linha'],
@@ -634,7 +635,7 @@ def verificar_tipagem_estatica(hits: list, repos_aux: dict) -> tuple:
                 for arg in args:
                     tipo_arg = _classificar_arg(arg)
                     e_cnpj_split = tipo_arg == 'variavel' and _e_arg_cnpj_split(arg)
-                    if tipo_arg == 'string_literal' or e_cnpj_split:
+                    if e_cnpj_split:
                         sem_cobertura.append({
                             'arquivo':            arquivo,
                             'linha':              inv['linha'],
