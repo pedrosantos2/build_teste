@@ -67,7 +67,6 @@ def _card(bug: dict) -> str:
     if correcao:
         correcao_html = f"""
         <div class="correcao">
-          <strong>Correcao sugerida:</strong>
           <pre><code>{correcao_html_txt}</code></pre>
         </div>"""
 
