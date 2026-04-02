@@ -192,6 +192,7 @@ def _e_arg_cnpj_split(arg: str) -> bool:
 
 
 _METODOS_SEMPRE_IGNORAR_TIPAGEM = {
+    "write", "setMotivo",
     "setString", "setInt", "setLong", "setShort", "setByte",
     "setBigDecimal", "setDate", "setTimestamp", "setNull", "setObject",
     "setNullable", "setSearchRanges"
@@ -204,12 +205,18 @@ _CLASSES_SEMPRE_IGNORAR_TIPAGEM = {
 
 
 def _deve_ignorar_invocacao_tipagem(import_pkg: str, tipo_objeto: str,
-                                    objeto: str, metodo: str) -> bool:
+                                    objeto: str, metodo: str,
+                                    args_raw: str = "") -> bool:
     """
     Filtra invocacoes que nao representam bug de tipagem RT de regra de negocio.
     Evita falsos positivos em APIs utilitarias/JDBC e chamadas de construcao CNPJ.
     """
     if metodo in _METODOS_SEMPRE_IGNORAR_TIPAGEM:
+        return True
+
+    # pipe/write com Object[] agrega muitos campos (incluindo *_r/_o) e nao
+    # representa uma chamada de assinatura de dominio para hook RT.
+    if metodo == "write" and "new Object[]" in (args_raw or ""):
         return True
 
     if tipo_objeto in _CLASSES_SEMPRE_IGNORAR_TIPAGEM or objeto in _CLASSES_SEMPRE_IGNORAR_TIPAGEM:
@@ -704,7 +711,7 @@ def verificar_tipagem_estatica(hits: list, repos_aux: dict) -> tuple:
                         import_pkg_tipo = imp
                         break
 
-            if _deve_ignorar_invocacao_tipagem(import_pkg_tipo, tipo_objeto, objeto, metodo):
+            if _deve_ignorar_invocacao_tipagem(import_pkg_tipo, tipo_objeto, objeto, metodo, args_raw):
                 continue
 
             # Verifica se o tipo pertence a um import reconhecido mas sem arquivo no disco
