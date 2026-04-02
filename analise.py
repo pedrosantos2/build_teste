@@ -332,6 +332,7 @@ def main():
             "plugins_api": args.dir_plugins or str(BASE_PLUGINS),
             "bo":          args.dir_bo      or str(BASE_BO),
             "function":    args.dir_function or str(BASE_FUNCTION),
+            "projeto":     str(dir_cnpj) if dir_cnpj else (repo_path or ""),
         }
 
         print(f"\n[3/3] Verificando incompatibilidades de Tipagem RT...")

@@ -10,36 +10,40 @@ from typing import List, Dict, Any
 import anthropic
 
 
-def _chamar_api_tipagem(client, lote_possiveis: list, numero_lote: int, total_lotes: int) -> dict:
+def _chamar_api_tipagem(client, lote: list, numero_lote: int, total_lotes: int) -> dict:
     """
-    Envia ao Claude apenas casos ambiguos (variaveis cujo tipo nao pode ser determinado
-    estaticamente), ja enriquecidos com a assinatura Java real do metodo.
+    Envia ao Claude todos os casos de tipagem suspeita (definitivos + ambiguos),
+    ja com pre_classificacao da analise estatica, para validacao final.
     """
     prompt = f"""Role: Analisador de Tipagem Java/.fj.
 
-Cada caso abaixo representa uma chamada de metodo em um arquivo .fj onde um argumento
-de tipo incerto (nome de variavel) e passado a um parametro que a assinatura Java real
-declara como int/Integer/long.
+Cada caso abaixo representa uma chamada de metodo em arquivo .fj onde um argumento
+e passado a um parametro que a assinatura Java declara como int/Integer/long.
 
-Sua tarefa: determinar se o argumento e provavelmente uma String (ou null incompativel
-com int primitivo), configurando um erro de tipagem que exige uso de uma alternativa (variante RT ou conversao de objeto para CNPJ).
+O campo `pre_classificacao` indica o resultado da analise estatica previa:
+  - "ERRO": analise estatica identificou com alta confianca que e String passada onde
+            int esperado (ex: literal de string, variavel com sufixo _r/_o que indica
+            CNPJ alfanumerico dividido armazenado como String)
+  - "POSSIVEL": caso ambiguo — tipo da variavel nao pode ser determinado estaticamente
+
+Sua tarefa: revisar cada caso e determinar a severidade final.
 
 Campos por caso:
-  - codigo_analisado : linha exata do .fj
-  - assinatura_java  : assinatura real do metodo no repositorio Java
-  - variante_rt      : assinatura da variante RT (se existir)
-  - argumento_suspeito : argumento especifico em analise (nome de variavel)
+  - pre_classificacao    : classificacao estatica previa (ERRO ou POSSIVEL)
+  - codigo_analisado     : linha exata do .fj com a chamada completa
+  - assinatura_java      : assinatura real do metodo no repositorio Java (pode ser null)
+  - variante_rt          : assinatura da variante RT ou overload CNPJ disponivel (pode ser null)
+  - argumentos_suspeitos : lista de todos os argumentos suspeitos da chamada, cada um com:
+                           idx (posicao na chamada), arg (nome da variavel), tipo,
+                           e_cnpj_split (true se sufixo _r/_o — indica String de CNPJ dividido)
 
-REGRAS ESTRITAS:
-1. REPORTAR se o argumento termina em _r ou _o (ex: cnpj_r, cgc_fornec_r, cnpj_cli_o) E
-   a assinatura Java espera int/Integer → CRITICO se variante_rt existir, ADVERTENCIA caso contrario.
-   Esses sufixos indicam CNPJ alfanumerico dividido (raiz/_r e ordem/_o) armazenado como String.
-2. REPORTAR se o nome da variavel contem cnpj, cgc, ou termina em _cnpj/_cgc/_str/_s
-   E a assinatura espera int → ADVERTENCIA
-3. REPORTAR se o argumento for null E o parametro for int primitivo (nao Integer) → ADVERTENCIA
-4. NAO REPORTAR se houver cast explicito no codigo_analisado: (int), Integer.parseInt, etc.
-5. NAO REPORTAR se nao for possivel determinar o tipo com razoavel confianca.
-6. Se variante_rt for null (sem alternativa (variante RT ou conversao de objeto para CNPJ)), ainda assim reporte mas sem metodo_substituto.
+REGRAS:
+1. Se pre_classificacao="ERRO" e a analise faz sentido → severidade "CRITICO"
+2. Se pre_classificacao="ERRO" mas parece falso positivo → severidade "FALSO_POSITIVO"
+3. Se pre_classificacao="POSSIVEL" e ha evidencia de String onde int esperado → "ADVERTENCIA"
+4. Se pre_classificacao="POSSIVEL" e nao ha evidencia suficiente → NAO inclua no resultado
+5. NAO REPORTAR se houver cast explicito no codigo_analisado: (int), Integer.parseInt, etc.
+6. Se variante_rt for null (sem alternativa RT ou objeto CNPJ), reporte mas sem metodo_substituto.
 
 Retorne EXCLUSIVAMENTE JSON valido, sem texto adicional:
 {{
@@ -57,13 +61,13 @@ Retorne EXCLUSIVAMENTE JSON valido, sem texto adicional:
         "aplicar_conversao": true,
         "metodo_substituto": "<Metodo Alternativo ou null>"
       }},
-      "severidade": "ADVERTENCIA"
+      "severidade": "CRITICO|ADVERTENCIA|FALSO_POSITIVO"
     }}
   ]
 }}
 
-CASOS AMBIGUOS — lote {numero_lote}/{total_lotes}:
-{json.dumps(lote_possiveis, indent=2, ensure_ascii=False)}
+CASOS — lote {numero_lote}/{total_lotes}:
+{json.dumps(lote, indent=2, ensure_ascii=False)}
 """
 
     response = client.messages.create(
@@ -90,102 +94,48 @@ def analisar_tipagem(hits: List[Dict[str, Any]], repos_aux: dict = None) -> dict
 
     Passo 1 — Estatico (zero tokens):
       Cruza as invocacoes do .fj com as assinaturas Java reais dos repositorios.
-      Casos definitivos (string literal onde int esperado) sao reportados diretamente.
+      Classifica cada caso como ERRO (definitivo) ou POSSIVEL (ambiguo) e adiciona
+      o campo pre_classificacao para orientar o Claude.
 
-    Passo 2 — Claude apenas para casos ambiguos (variaveis):
-      Envia somente os casos onde o tipo do argumento e incerto, mas com a assinatura
-      Java real embutida no contexto — prompts muito menores e mais precisos.
+    Passo 2 — Claude para todos os casos:
+      Envia todos os casos (definitivos + ambiguos + sem cobertura) ao Claude para
+      validacao e determinacao final da severidade (CRITICO, ADVERTENCIA ou FALSO_POSITIVO).
     """
     import grep_engine
 
     repos_aux   = repos_aux or {}
     usage_total = {"input_tokens": 0, "output_tokens": 0}
-    todas_inconsistencias = []
 
-    # --- Passo 1: analise estatica gratuita ---
+    # --- Passo 1: analise estatica ---
     definitivos, possiveis, sem_cobertura = grep_engine.verificar_tipagem_estatica(hits, repos_aux)
 
     for item in definitivos:
-        motivo = item.get('motivo', '')
-        if motivo == 'criar_variante_rt_ou_cnpj':
-            descricao_acao = f"Metodo '{item['metodo_alvo']}RT' ou '{item['metodo_alvo']}(CNPJ)' nao existe — precisa ser criado no repositorio"
-        elif motivo == 'usar_objeto_cnpj':
-            descricao_acao = f"Usar '{item['metodo_substituto']}(CNPJ)' no lugar de '{item['metodo_alvo']}' pois esta disponivel"
-        else:
-            descricao_acao = f"Usar '{item['metodo_substituto']}' no lugar de '{item['metodo_alvo']}'"
-        todas_inconsistencias.append({
-            "arquivo":          item["arquivo"],
-            "linha":            item["linha"],
-            "codigo_analisado": item["codigo_analisado"],
-            "chamada": {
-                "objeto":              item["objeto"],
-                "metodo_alvo":         item["metodo_alvo"],
-                "argumentos_passados": item["argumento_suspeito"],
-            },
-            "correcao_sugerida": {
-                "aplicar_conversao": item["metodo_substituto"] is not None,
-                "metodo_substituto": item["metodo_substituto"],
-                "descricao":         descricao_acao,
-            },
-            "assinatura_detectada": item["assinatura_java"],
-            "variante_rt":          item["variante_rt"],
-            "severidade":           item["severidade"],
-            "motivo":               item.get("motivo"),
-            "origem":               "estatico",
-        })
-
-    # Casos sem cobertura: metodo/classe nao encontrado nos repos
+        item['pre_classificacao'] = 'ERRO'
+    for item in possiveis:
+        item['pre_classificacao'] = 'POSSIVEL'
     for item in sem_cobertura:
-        motivo = item.get('motivo', '')
-        if motivo == 'metodo_nao_encontrado_no_repo':
-            descricao_acao = (
-                f"Metodo '{item['metodo_alvo']}' nao encontrado no repositorio — "
-                f"verifique se '{item['metodo_alvo']}RT' precisa ser criado"
-            )
-        else:
-            descricao_acao = (
-                f"Classe nao encontrada nos repos (function/bo/plugins-api) — "
-                f"verifique se '{item['metodo_alvo']}RT' precisa ser criado"
-            )
-        todas_inconsistencias.append({
-            "arquivo":          item["arquivo"],
-            "linha":            item["linha"],
-            "codigo_analisado": item["codigo_analisado"],
-            "chamada": {
-                "objeto":              item["objeto"],
-                "metodo_alvo":         item["metodo_alvo"],
-                "argumentos_passados": item["argumento_suspeito"],
-            },
-            "correcao_sugerida": {
-                "aplicar_conversao": True,
-                "metodo_substituto": item["metodo_substituto"],
-                "descricao":         descricao_acao,
-            },
-            "assinatura_detectada": None,
-            "variante_rt":          None,
-            "severidade":           "ADVERTENCIA",
-            "motivo":               motivo,
-            "origem":               "estatico_sem_cobertura",
-        })
+        item['pre_classificacao'] = 'POSSIVEL'
 
-    total_estatico = len(definitivos) + len(sem_cobertura)
-    if total_estatico:
-        print(f"      [Tipagem] {len(definitivos)} definitivo(s) + {len(sem_cobertura)} sem cobertura detectado(s) estaticamente (0 tokens).")
+    todos_para_claude = definitivos + possiveis + sem_cobertura
 
-    if not possiveis:
-        if not total_estatico:
-            print(f"      [Tipagem] Nenhuma invocacao cruzou com assinaturas dos repositorios — nada a verificar.")
-        return {"inconsistencias": todas_inconsistencias, "_usage": usage_total}
+    if not todos_para_claude:
+        print(f"      [Tipagem] Nenhuma invocacao cruzou com assinaturas dos repositorios — nada a verificar.")
+        return {"inconsistencias": [], "_usage": usage_total}
 
-    # --- Passo 2: Claude apenas para casos ambiguos ---
-    print(f"      [Tipagem] {len(possiveis)} caso(s) ambiguo(s) (variaveis) enviados ao Claude com assinaturas reais...")
+    n_def = len(definitivos)
+    n_pos = len(possiveis)
+    n_sem = len(sem_cobertura)
+    print(f"      [Tipagem] {len(todos_para_claude)} caso(s) enviados ao Claude "
+          f"({n_def} definitivo(s), {n_pos} ambiguo(s), {n_sem} sem cobertura)...")
 
+    # --- Passo 2: Claude valida todos os casos ---
     client = anthropic.Anthropic()
 
     LOTE_TIPAGEM = 20
-    lotes       = [possiveis[i:i + LOTE_TIPAGEM] for i in range(0, len(possiveis), LOTE_TIPAGEM)]
+    lotes       = [todos_para_claude[i:i + LOTE_TIPAGEM] for i in range(0, len(todos_para_claude), LOTE_TIPAGEM)]
     total_lotes = len(lotes)
 
+    todas_inconsistencias = []
     for i, lote in enumerate(lotes, 1):
         print(f"      [Tipagem] Lote {i}/{total_lotes} ({len(lote)} casos)...")
         tentativas = 0

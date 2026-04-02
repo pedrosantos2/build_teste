@@ -346,8 +346,13 @@ def extrair_invocacoes_fj(texto, linha_offset=1):
 
 def localizar_arquivo_repositorio(import_pacote, caminhos_repositorios):
     """
-    Identifica de qual repositorio externo o pacote pertence e retorna o caminho
-    fisico do arquivo .java correspondente no disco.
+    Identifica de qual repositorio o pacote pertence e retorna o caminho fisico
+    do arquivo .java correspondente no disco.
+
+    Ordem de busca:
+      1. plugins_api, function, bo (pelos prefixos de pacote conhecidos)
+      2. projeto (o proprio diretorio sendo analisado) — fallback para qualquer
+         import nao reconhecido pelos prefixos acima
     """
     if not import_pacote:
         return None
@@ -374,13 +379,20 @@ def localizar_arquivo_repositorio(import_pacote, caminhos_repositorios):
         elif import_pacote.startswith("br.com.systextil.bo") or import_pacote.startswith("systextil.bo"):
             repo_alvo = caminhos_repositorios.get('bo')
 
+    # Fallback: busca no proprio projeto (arquivos Java do modulo sendo analisado)
+    if not repo_alvo:
+        repo_alvo = caminhos_repositorios.get('projeto')
+
     if not repo_alvo:
         return None
 
     caminho_relativo = import_pacote.replace(".", "/") + ".java"
-    caminho_absoluto = Path(repo_alvo) / "src" / "main" / "java" / caminho_relativo
-
-    return str(caminho_absoluto)
+    # Tenta multiplos layouts de codigo fonte antes de retornar o caminho padrao
+    for base_src in ('src/main/java', 'src', 'sources'):
+        candidato = Path(repo_alvo) / base_src / caminho_relativo
+        if candidato.exists():
+            return str(candidato)
+    return str(Path(repo_alvo) / 'src' / 'main' / 'java' / caminho_relativo)
 
 
 # ============================================================
@@ -650,52 +662,52 @@ def verificar_tipagem_estatica(hits: list, repos_aux: dict) -> tuple:
                 if not tipo_nos_imports:
                     continue
                 # Tipo e de um repo conhecido mas o arquivo nao foi encontrado no disco.
-                # Reporta apenas se houver argumento definitivamente suspeito (apenas sufixo _r/_o em sem_cobertura).
+                # Reporta TODOS os argumentos com sufixo _r/_o.
+                suspeitos_sc = []
                 for arg in args:
                     tipo_arg = _classificar_arg(arg)
-                    e_cnpj_split = tipo_arg == 'variavel' and _e_arg_cnpj_split(arg)
-                    if e_cnpj_split:
-                        sem_cobertura.append({
-                            'arquivo':            arquivo,
-                            'linha':              inv['linha'],
-                            'codigo_analisado':   inv['codigo_analisado'],
-                            'objeto':             objeto,
-                            'metodo_alvo':        metodo,
-                            'argumento_suspeito': arg,
-                            'tipo_argumento':     tipo_arg,
-                            'assinatura_java':    None,
-                            'variante_rt':        None,
-                            'metodo_substituto':  metodo + 'RT',
-                            'caminho_java':       caminho_java,
-                            'severidade':         'ADVERTENCIA',
-                            'motivo':             'classe_nao_encontrada_nos_repos',
-                        })
-                        break
+                    if tipo_arg == 'variavel' and _e_arg_cnpj_split(arg):
+                        suspeitos_sc.append({'arg': arg, 'tipo': tipo_arg, 'e_cnpj_split': True})
+                if suspeitos_sc:
+                    sem_cobertura.append({
+                        'arquivo':              arquivo,
+                        'linha':                inv['linha'],
+                        'codigo_analisado':     inv['codigo_analisado'],
+                        'objeto':               objeto,
+                        'metodo_alvo':          metodo,
+                        'argumentos_suspeitos': suspeitos_sc,
+                        'assinatura_java':      None,
+                        'variante_rt':          None,
+                        'metodo_substituto':    metodo + 'RT',
+                        'caminho_java':         caminho_java,
+                        'severidade':           'ADVERTENCIA',
+                        'motivo':               'classe_nao_encontrada_nos_repos',
+                    })
                 continue
 
             overloads = sigs_classe.get(metodo, [])
             if not overloads:
-                # Metodo nao existe na classe — reporta se arg suspeito presente
+                # Metodo nao existe na classe — reporta TODOS os args suspeitos
+                suspeitos_sc = []
                 for arg in args:
                     tipo_arg = _classificar_arg(arg)
-                    e_cnpj_split = tipo_arg == 'variavel' and _e_arg_cnpj_split(arg)
-                    if e_cnpj_split:
-                        sem_cobertura.append({
-                            'arquivo':            arquivo,
-                            'linha':              inv['linha'],
-                            'codigo_analisado':   inv['codigo_analisado'],
-                            'objeto':             objeto,
-                            'metodo_alvo':        metodo,
-                            'argumento_suspeito': arg,
-                            'tipo_argumento':     tipo_arg,
-                            'assinatura_java':    None,
-                            'variante_rt':        None,
-                            'metodo_substituto':  metodo + 'RT',
-                            'caminho_java':       caminho_java,
-                            'severidade':         'ADVERTENCIA',
-                            'motivo':             'metodo_nao_encontrado_no_repo',
-                        })
-                        break
+                    if tipo_arg == 'variavel' and _e_arg_cnpj_split(arg):
+                        suspeitos_sc.append({'arg': arg, 'tipo': tipo_arg, 'e_cnpj_split': True})
+                if suspeitos_sc:
+                    sem_cobertura.append({
+                        'arquivo':              arquivo,
+                        'linha':                inv['linha'],
+                        'codigo_analisado':     inv['codigo_analisado'],
+                        'objeto':               objeto,
+                        'metodo_alvo':          metodo,
+                        'argumentos_suspeitos': suspeitos_sc,
+                        'assinatura_java':      None,
+                        'variante_rt':          None,
+                        'metodo_substituto':    metodo + 'RT',
+                        'caminho_java':         caminho_java,
+                        'severidade':           'ADVERTENCIA',
+                        'motivo':               'metodo_nao_encontrado_no_repo',
+                    })
                 continue
 
             for overload in overloads:
@@ -706,74 +718,83 @@ def verificar_tipagem_estatica(hits: list, repos_aux: dict) -> tuple:
                 if params and has_varargs and len(args) < len(params) - 1:
                     continue  # Nem os parametros fixos foram fornecidos
 
+                # Coleta TODOS os argumentos suspeitos deste overload
+                suspeitos = []
                 for idx, param in enumerate(params):
                     if param['tipo'] not in _TIPOS_NUMERICOS:
                         continue
                     if idx >= len(args):
                         continue
-
                     tipo_arg = _classificar_arg(args[idx])
                     if tipo_arg in ('cast_int', 'parse_int', 'int_literal', 'vazio'):
                         continue
+                    e_cnpj_split = tipo_arg == 'variavel' and _e_arg_cnpj_split(args[idx])
+                    suspeitos.append({
+                        'idx':          idx,
+                        'arg':          args[idx],
+                        'tipo':         tipo_arg,
+                        'e_cnpj_split': e_cnpj_split,
+                    })
 
-                    # Variavel com sufixo _r / _o indica String de CNPJ dividido.
-                    e_cnpj_split = (tipo_arg == 'variavel' and _e_arg_cnpj_split(args[idx]))
+                if not suspeitos:
+                    continue  # Nenhum argumento suspeito neste overload
 
-                    # Verifica se existe um overload no proprio metodo alvo que recebe um objeto (CNPJ)
-                    sobreposicoes_mesmo_nome = sigs_classe.get(metodo, [])
-                    sig_cnpj = None
-                    for o_same in sobreposicoes_mesmo_nome:
-                        p_same = o_same['params']
-                        if len(p_same) == 1 and p_same[0]['tipo'].upper() == 'CNPJ':
-                            sig_cnpj = o_same
-                            break
+                # Verifica overload CNPJ e variante RT (uma vez por invocacao)
+                sobreposicoes_mesmo_nome = sigs_classe.get(metodo, [])
+                sig_cnpj = None
+                for o_same in sobreposicoes_mesmo_nome:
+                    p_same = o_same['params']
+                    if len(p_same) == 1 and p_same[0]['tipo'].upper() == 'CNPJ':
+                        sig_cnpj = o_same
+                        break
 
-                    # Verifica variante RT (metodo + sufixo RT)
-                    metodo_rt = metodo + 'RT'
-                    rt_sigs = sigs_classe.get(metodo_rt) or sigs_classe.get(metodo + '_rt')
+                metodo_rt = metodo + 'RT'
+                rt_sigs = sigs_classe.get(metodo_rt) or sigs_classe.get(metodo + '_rt')
 
-                    params_str = ', '.join(f"{p['tipo']} {p['nome']}".strip() for p in params)
-                    assinatura = f"{overload['retorno']} {metodo}({params_str})"
+                params_str = ', '.join(f"{p['tipo']} {p['nome']}".strip() for p in params)
+                assinatura = f"{overload['retorno']} {metodo}({params_str})"
 
-                    variante_rt_str = None
-                    metodo_substituto = None
+                variante_rt_str = None
+                metodo_substituto = None
 
-                    if sig_cnpj:
-                        cnpj_ps = ', '.join(f"{p['tipo']} {p['nome']}".strip() for p in sig_cnpj['params'])
-                        variante_rt_str = f"{sig_cnpj['retorno']} {metodo}({cnpj_ps})"
-                        motivo = 'usar_objeto_cnpj'
-                        metodo_substituto = metodo
-                    elif rt_sigs:
-                        rt_ps = ', '.join(f"{p['tipo']} {p['nome']}".strip() for p in rt_sigs[0]['params'])
-                        nome_rt = metodo_rt if sigs_classe.get(metodo_rt) else metodo + '_rt'
-                        variante_rt_str = f"{rt_sigs[0]['retorno']} {nome_rt}({rt_ps})"
-                        motivo = 'usar_variante_rt'
-                        metodo_substituto = nome_rt
-                    else:
-                        motivo = 'criar_variante_rt_ou_cnpj'
+                if sig_cnpj:
+                    cnpj_ps = ', '.join(f"{p['tipo']} {p['nome']}".strip() for p in sig_cnpj['params'])
+                    variante_rt_str = f"{sig_cnpj['retorno']} {metodo}({cnpj_ps})"
+                    motivo = 'usar_objeto_cnpj'
+                    metodo_substituto = metodo
+                elif rt_sigs:
+                    rt_ps = ', '.join(f"{p['tipo']} {p['nome']}".strip() for p in rt_sigs[0]['params'])
+                    nome_rt = metodo_rt if sigs_classe.get(metodo_rt) else metodo + '_rt'
+                    variante_rt_str = f"{rt_sigs[0]['retorno']} {nome_rt}({rt_ps})"
+                    motivo = 'usar_variante_rt'
+                    metodo_substituto = nome_rt
+                else:
+                    motivo = 'criar_variante_rt_ou_cnpj'
 
-                    e_definitivo = tipo_arg == 'string_literal' or e_cnpj_split
+                e_definitivo = any(
+                    s['tipo'] == 'string_literal' or s['e_cnpj_split']
+                    for s in suspeitos
+                )
 
-                    item = {
-                        'arquivo':            arquivo,
-                        'linha':              inv['linha'],
-                        'codigo_analisado':   inv['codigo_analisado'],
-                        'objeto':             objeto,
-                        'metodo_alvo':        metodo,
-                        'argumento_suspeito': args[idx],
-                        'tipo_argumento':     tipo_arg,
-                        'assinatura_java':    assinatura,
-                        'variante_rt':        variante_rt_str,
-                        'metodo_substituto':  metodo_substituto,
-                        'caminho_java':       caminho_java,
-                        'severidade':         'CRITICO' if e_definitivo and (rt_sigs or sig_cnpj) else 'ADVERTENCIA',
-                        'motivo':             motivo,
-                    }
+                item = {
+                    'arquivo':              arquivo,
+                    'linha':                inv['linha'],
+                    'codigo_analisado':     inv['codigo_analisado'],
+                    'objeto':               objeto,
+                    'metodo_alvo':          metodo,
+                    'argumentos_suspeitos': suspeitos,
+                    'assinatura_java':      assinatura,
+                    'variante_rt':          variante_rt_str,
+                    'metodo_substituto':    metodo_substituto,
+                    'caminho_java':         caminho_java,
+                    'severidade':           'CRITICO' if e_definitivo and (rt_sigs or sig_cnpj) else 'ADVERTENCIA',
+                    'motivo':               motivo,
+                }
 
-                    if e_definitivo:
-                        definitivos.append(item)
-                    else:
-                        possiveis.append(item)
-                    break  # Um achado por invocacao e suficiente
+                if e_definitivo:
+                    definitivos.append(item)
+                else:
+                    possiveis.append(item)
+                break  # Primeiro overload com suspeitos — um item por invocacao
 
     return definitivos, possiveis, sem_cobertura
