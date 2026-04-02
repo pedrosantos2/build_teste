@@ -191,6 +191,45 @@ def _e_arg_cnpj_split(arg: str) -> bool:
     return bool(_RE_CNPJ_SPLIT_SUFIXO.search(arg.strip()))
 
 
+_METODOS_SEMPRE_IGNORAR_TIPAGEM = {
+    "setString", "setNullable", "setSearchRanges"
+}
+
+_CLASSES_SEMPRE_IGNORAR_TIPAGEM = {
+    "PreparedStatement", "ResultSet", "Connection", "Statement",
+    "BigDecimal", "String", "Integer", "Long", "CNPJ", "UtilBinding",
+}
+
+
+def _deve_ignorar_invocacao_tipagem(import_pkg: str, tipo_objeto: str,
+                                    objeto: str, metodo: str) -> bool:
+    """
+    Filtra invocacoes que nao representam bug de tipagem RT de regra de negocio.
+    Evita falsos positivos em APIs utilitarias/JDBC e chamadas de construcao CNPJ.
+    """
+    if metodo in _METODOS_SEMPRE_IGNORAR_TIPAGEM:
+        return True
+
+    if tipo_objeto in _CLASSES_SEMPRE_IGNORAR_TIPAGEM or objeto in _CLASSES_SEMPRE_IGNORAR_TIPAGEM:
+        return True
+
+    # CNPJ.get(...) e construcao valida e nao deve entrar na analise RT.
+    if (objeto == "CNPJ" or tipo_objeto == "CNPJ") and metodo == "get":
+        return True
+
+    # Import de libs/JDK nao deve gerar sem_cobertura de regra de negocio.
+    if import_pkg and (
+        import_pkg.startswith("java.") or
+        import_pkg.startswith("javax.") or
+        import_pkg.startswith("jakarta.") or
+        import_pkg.startswith("org.") or
+        import_pkg.startswith("com.sun.")
+    ):
+        return True
+
+    return False
+
+
 # ============================================================
 # EXTRATORES (para .fj e .java)
 # ============================================================
@@ -601,6 +640,7 @@ def verificar_tipagem_estatica(hits: list, repos_aux: dict) -> tuple:
         # (mesmo que o arquivo nao exista no disco ainda)
         cache_sigs          = {}
         cache_caminhos      = {}  # NomeSimplesDaClasse -> caminho fisico do .java
+        cache_import_pkg    = {}  # NomeSimplesDaClasse -> pacote importado completo
         classes_dos_imports = set()  # nomes simples de todas as classes importadas
 
         for imp in imports:
@@ -610,6 +650,7 @@ def verificar_tipagem_estatica(hits: list, repos_aux: dict) -> tuple:
                 # Import reconhecido pelo prefixo — classe pertence a um dos repos
                 classes_dos_imports.add(nome_classe)
                 cache_caminhos[nome_classe] = caminho  # registra mesmo se nao existir no disco
+                cache_import_pkg[nome_classe] = imp
                 if Path(caminho).exists():
                     sigs = extrair_assinaturas_java(caminho)
                     if sigs:
@@ -653,6 +694,16 @@ def verificar_tipagem_estatica(hits: list, repos_aux: dict) -> tuple:
                         caminho_java = cp
                         tipo_objeto  = nc
                         break
+
+            import_pkg_tipo = cache_import_pkg.get(tipo_objeto)
+            if not import_pkg_tipo:
+                for nc, imp in cache_import_pkg.items():
+                    if tipo_objeto.lower() in nc.lower() or nc.lower().startswith(tipo_objeto.lower()):
+                        import_pkg_tipo = imp
+                        break
+
+            if _deve_ignorar_invocacao_tipagem(import_pkg_tipo, tipo_objeto, objeto, metodo):
+                continue
 
             # Verifica se o tipo pertence a um import reconhecido mas sem arquivo no disco
             tipo_nos_imports = tipo_objeto in classes_dos_imports or bool(caminho_java)
@@ -775,6 +826,14 @@ def verificar_tipagem_estatica(hits: list, repos_aux: dict) -> tuple:
                     s['tipo'] == 'string_literal' or s['e_cnpj_split']
                     for s in suspeitos
                 )
+
+                # Se ja existe evidencia definitiva na chamada, nao poluir o item
+                # com variaveis ambiguas sem sufixo CNPJ (ex: cgc2).
+                if e_definitivo:
+                    suspeitos = [
+                        s for s in suspeitos
+                        if s['tipo'] == 'string_literal' or s['e_cnpj_split']
+                    ]
 
                 item = {
                     'arquivo':              arquivo,
