@@ -5,6 +5,7 @@
 
 from pathlib import Path
 from datetime import datetime
+import html
 
 CORES = {
     "CRITICO":        "#ff4444",
@@ -27,6 +28,29 @@ ICONES = {
 ORDEM = ["CRITICO", "MEDIO", "BAIXO", "SUGESTAO", "ADVERTENCIA", "FALSO_POSITIVO"]
 
 
+def _formatar_codigo(codigo: str) -> str:
+  """
+  Melhora a legibilidade de chamadas longas quebrando argumentos em linhas.
+  Retorna texto escapado para uso seguro em HTML.
+  """
+  if not codigo:
+    return ""
+
+  txt = codigo.strip()
+  if len(txt) > 140 and '(' in txt and ')' in txt and ',' in txt:
+    i = txt.find('(')
+    j = txt.rfind(')')
+    if j > i:
+      cabeca = txt[:i + 1]
+      miolo = txt[i + 1:j]
+      cauda = txt[j:]
+      partes = [p.strip() for p in miolo.split(',')]
+      if len(partes) >= 4:
+        txt = cabeca + "\n  " + ",\n  ".join(partes) + "\n" + cauda
+
+  return html.escape(txt)
+
+
 def _card(bug: dict) -> str:
     sev      = bug.get("severidade", "")
     arquivo  = bug.get("arquivo", "")
@@ -35,13 +59,16 @@ def _card(bug: dict) -> str:
     descricao= bug.get("descricao", "")
     correcao = bug.get("correcao", "")
     icone    = ICONES.get(sev, "")
+    descricao_html = html.escape(descricao)
+    tipo_html = html.escape(tipo)
+    correcao_html_txt = _formatar_codigo(correcao)
 
     correcao_html = ""
     if correcao:
         correcao_html = f"""
         <div class="correcao">
           <strong>Correcao sugerida:</strong>
-          <pre>{correcao}</pre>
+          <pre><code>{correcao_html_txt}</code></pre>
         </div>"""
 
     return f"""
@@ -50,8 +77,8 @@ def _card(bug: dict) -> str:
         <span class="arquivo">📄 {arquivo} — linha {linha}</span>
         <span class="badge badge-{sev.lower()}">{icone} {sev}</span>
       </div>
-      <div class="descricao">{descricao}</div>
-      <code class="tipo">{tipo}</code>
+      <div class="descricao">{descricao_html}</div>
+      <code class="tipo">{tipo_html}</code>
       {correcao_html}
     </div>"""
 
@@ -105,17 +132,26 @@ def gerar_html(resultado: dict, output_path: str) -> None:
   <title>Analise CNPJ - {modulo}</title>
   <style>
     * {{ box-sizing: border-box; margin: 0; padding: 0; }}
-    body {{ background: #0d1117; color: #e0e0e0; font-family: Arial, sans-serif; max-width: 960px; margin: 0 auto; padding: 32px 16px; }}
-    h1 {{ color: #4488ff; margin-bottom: 4px; }}
+    :root {{
+      --bg: #0d1117;
+      --panel: #161b22;
+      --text: #e6edf3;
+      --muted: #8b949e;
+      --border: #30363d;
+      --accent: #58a6ff;
+    }}
+    body {{ background: var(--bg); color: var(--text); font-family: "Segoe UI", "Noto Sans", sans-serif; max-width: 1120px; margin: 0 auto; padding: 32px 16px; }}
+    h1 {{ color: var(--accent); margin-bottom: 4px; letter-spacing: 0.2px; }}
     h2 {{ margin: 24px 0 12px 0; }}
-    hr {{ border: none; border-top: 1px solid #30363d; margin: 24px 0; }}
-    p {{ color: #888; }}
-    pre {{ background: #161b22; padding: 12px; border-radius: 4px; overflow-x: auto; font-size: 13px; white-space: pre-wrap; word-break: break-word; }}
+    hr {{ border: none; border-top: 1px solid var(--border); margin: 24px 0; }}
+    p {{ color: var(--muted); }}
+    pre {{ background: var(--panel); padding: 14px; border-radius: 8px; overflow-x: auto; font-size: 13px; line-height: 1.45; white-space: pre-wrap; word-break: break-word; border: 1px solid var(--border); }}
+    pre code {{ font-family: "JetBrains Mono", "Cascadia Code", "Fira Code", monospace; color: #f2cc60; }}
     code {{ color: #ff8888; font-size: 13px; }}
     table {{ border-collapse: collapse; width: 100%; margin-top: 12px; }}
     th, td {{ border: 1px solid #30363d; padding: 8px 12px; text-align: left; }}
     th {{ background: #161b22; }}
-    .subtitulo {{ color: #888; margin-bottom: 24px; }}
+    .subtitulo {{ color: var(--muted); margin-bottom: 24px; }}
 
     /* Dashboard */
     .dashboard {{ display: flex; flex-wrap: wrap; gap: 8px; margin: 16px 0; }}
@@ -128,7 +164,7 @@ def gerar_html(resultado: dict, output_path: str) -> None:
     .stat-falso {{ background: #44aa44; }}
 
     /* Cards */
-    .card {{ border-radius: 4px; padding: 16px; margin-bottom: 16px; border-left: 4px solid #444; }}
+    .card {{ border-radius: 10px; padding: 16px; margin-bottom: 16px; border-left: 4px solid #444; box-shadow: 0 2px 10px rgba(0,0,0,.22); }}
     .card-critico {{ background: #1a0a0a; border-left-color: #ff4444; }}
     .card-medio {{ background: #1a110a; border-left-color: #ff8800; }}
     .card-baixo {{ background: #1a1a0a; border-left-color: #e6b800; }}

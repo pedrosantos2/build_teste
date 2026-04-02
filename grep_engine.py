@@ -192,11 +192,13 @@ def _e_arg_cnpj_split(arg: str) -> bool:
 
 
 _METODOS_SEMPRE_IGNORAR_TIPAGEM = {
-    "setString", "setNullable", "setSearchRanges"
+    "setString", "setInt", "setLong", "setShort", "setByte",
+    "setBigDecimal", "setDate", "setTimestamp", "setNull", "setObject",
+    "setNullable", "setSearchRanges"
 }
 
 _CLASSES_SEMPRE_IGNORAR_TIPAGEM = {
-    "PreparedStatement", "ResultSet", "Connection", "Statement",
+    "PreparedStatement", "CallableStatement", "ResultSet", "Connection", "Statement",
     "BigDecimal", "String", "Integer", "Long", "CNPJ", "UtilBinding",
 }
 

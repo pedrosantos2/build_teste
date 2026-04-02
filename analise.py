@@ -361,15 +361,24 @@ def main():
     # Consolida bugs RT para saida
     bugs_rt = []
     for inc in resultado_tipagem.get("inconsistencias", []):
+        metodo_sub = inc.get("correcao_sugerida", {}).get("metodo_substituto")
+        if metodo_sub:
+            desc_tipagem = (
+                f"Possivel uso de String onde se espera int. "
+                f"Sugerida substituicao por {metodo_sub}"
+            )
+        else:
+            desc_tipagem = (
+                "Possivel uso de String onde se espera int. "
+                "Sem metodo substituto automatico"
+            )
+
         bugs_rt.append({
             "arquivo":    inc.get("arquivo"),
             "linha":      inc.get("linha"),
             "tipo":       "BUG_TIPAGEM_RT",
             "severidade": inc.get("severidade", "ADVERTENCIA"),
-            "descricao":  (
-                f"Possivel uso de String onde se espera int. "
-                f"Sugerida substituicao por {inc.get('correcao_sugerida', {}).get('metodo_substituto')}"
-            ),
+            "descricao":  desc_tipagem,
             "correcao":   inc.get("codigo_analisado", ""),
         })
 
