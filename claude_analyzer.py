@@ -10,6 +10,110 @@ from typing import List, Dict, Any
 import anthropic
 
 
+def _extrair_json_da_resposta(raw_texto: str) -> str:
+  """
+  Extrai o primeiro objeto JSON valido do texto retornado pelo modelo.
+  Aceita respostas com ou sem bloco markdown.
+  """
+  raw = raw_texto.strip()
+  if raw.startswith("```json"):
+    raw = raw[7:]
+  if raw.startswith("```"):
+    raw = raw[3:]
+  if raw.endswith("```"):
+    raw = raw[:-3]
+  raw = raw.strip()
+
+  if raw.startswith("{") and raw.endswith("}"):
+    return raw
+
+  inicio = raw.find("{")
+  if inicio < 0:
+    return raw
+
+  nivel = 0
+  em_string = False
+  escape = False
+  for i in range(inicio, len(raw)):
+    c = raw[i]
+    if escape:
+      escape = False
+      continue
+    if c == "\\":
+      escape = True
+      continue
+    if c == '"':
+      em_string = not em_string
+      continue
+    if em_string:
+      continue
+    if c == "{":
+      nivel += 1
+    elif c == "}":
+      nivel -= 1
+      if nivel == 0:
+        return raw[inicio:i + 1]
+
+  return raw
+
+
+def _normalizar_inconsistencias(payload: dict, lote: list) -> dict:
+  """
+  Normaliza a saida do Claude para o schema publico do pipeline.
+
+  Formato preferencial (novo):
+    {"inconsistencias": [{"idx": 0, "severidade": "CRITICO", "metodo_substituto": "buscarRT"}]}
+
+  Formato legado (aceito por compatibilidade):
+    {"inconsistencias": [{"arquivo": "...", ...}]}
+  """
+  incs = payload.get("inconsistencias", [])
+  if not isinstance(incs, list):
+    return {"inconsistencias": []}
+
+  # Compatibilidade: se ja veio no formato completo, devolve como esta.
+  if incs and isinstance(incs[0], dict) and "arquivo" in incs[0]:
+    return {"inconsistencias": incs}
+
+  normalizadas = []
+  for item in incs:
+    if not isinstance(item, dict):
+      continue
+
+    idx = item.get("idx")
+    if not isinstance(idx, int) or idx < 0 or idx >= len(lote):
+      continue
+
+    severidade = str(item.get("severidade", "ADVERTENCIA")).upper()
+    if severidade not in {"CRITICO", "ADVERTENCIA", "FALSO_POSITIVO"}:
+      continue
+
+    base = lote[idx]
+    metodo_substituto = item.get("metodo_substituto", base.get("metodo_substituto"))
+    args_suspeitos = [
+      s.get("arg", "") for s in base.get("argumentos_suspeitos", [])
+      if isinstance(s, dict)
+    ]
+
+    normalizadas.append({
+      "arquivo": base.get("arquivo", ""),
+      "linha": base.get("linha", 0),
+      "codigo_analisado": base.get("codigo_analisado", ""),
+      "chamada": {
+        "objeto": base.get("objeto", ""),
+        "metodo_alvo": base.get("metodo_alvo", ""),
+        "argumentos_passados": ", ".join(a for a in args_suspeitos if a),
+      },
+      "correcao_sugerida": {
+        "aplicar_conversao": True,
+        "metodo_substituto": metodo_substituto,
+      },
+      "severidade": severidade,
+    })
+
+  return {"inconsistencias": normalizadas}
+
+
 def _chamar_api_tipagem(client, lote: list, numero_lote: int, total_lotes: int) -> dict:
     """
     Envia ao Claude todos os casos de tipagem suspeita (definitivos + ambiguos),
@@ -45,30 +149,47 @@ REGRAS:
 5. NAO REPORTAR se houver cast explicito no codigo_analisado: (int), Integer.parseInt, etc.
 6. Se variante_rt for null (sem alternativa RT ou objeto CNPJ), reporte mas sem metodo_substituto.
 
-Retorne EXCLUSIVAMENTE JSON valido, sem texto adicional:
+Retorne EXCLUSIVAMENTE JSON valido, sem texto adicional, no formato:
 {{
   "inconsistencias": [
     {{
-      "arquivo": "<caminho>",
-      "linha": <numero>,
-      "codigo_analisado": "<codigo>",
-      "chamada": {{
-        "objeto": "<obj>",
-        "metodo_alvo": "<metodo>",
-        "argumentos_passados": "<arg>"
-      }},
-      "correcao_sugerida": {{
-        "aplicar_conversao": true,
-        "metodo_substituto": "<Metodo Alternativo ou null>"
-      }},
-      "severidade": "CRITICO|ADVERTENCIA|FALSO_POSITIVO"
+      "idx": <indice_do_caso_no_lote>,
+      "severidade": "CRITICO|ADVERTENCIA|FALSO_POSITIVO",
+      "metodo_substituto": "<Metodo Alternativo ou null>",
+      "justificativa": "<curta>"
     }}
   ]
 }}
 
+IMPORTANTE:
+- Use apenas o campo idx para identificar o caso.
+- Nao repita codigo_analisado nem outros campos de entrada no output.
+- Nao use comentarios, markdown, trailing commas ou texto fora do JSON.
+- Se nao houver inconsistencias, retorne:
+  {{
+    "inconsistencias": []
+  }}
+
 CASOS — lote {numero_lote}/{total_lotes}:
-{json.dumps(lote, indent=2, ensure_ascii=False)}
 """
+
+    casos_enxutos = []
+    for idx, c in enumerate(lote):
+        casos_enxutos.append({
+            "idx": idx,
+            "pre_classificacao": c.get("pre_classificacao"),
+            "arquivo": c.get("arquivo"),
+            "linha": c.get("linha"),
+            "codigo_analisado": c.get("codigo_analisado"),
+            "objeto": c.get("objeto"),
+            "metodo_alvo": c.get("metodo_alvo"),
+            "assinatura_java": c.get("assinatura_java"),
+            "variante_rt": c.get("variante_rt"),
+            "argumentos_suspeitos": c.get("argumentos_suspeitos", []),
+            "metodo_substituto_sugerido": c.get("metodo_substituto"),
+        })
+
+    prompt += json.dumps(casos_enxutos, indent=2, ensure_ascii=False)
 
     response = client.messages.create(
         model="claude-sonnet-4-6",
@@ -77,15 +198,11 @@ CASOS — lote {numero_lote}/{total_lotes}:
         messages=[{"role": "user", "content": prompt}]
     )
 
-    raw = response.content[0].text.strip()
-    if raw.startswith("```json"):
-        raw = raw[7:]
-    if raw.startswith("```"):
-        raw = raw[3:]
-    if raw.endswith("```"):
-        raw = raw[:-3]
+    raw = _extrair_json_da_resposta(response.content[0].text)
+    parsed = json.loads(raw.strip())
+    normalizado = _normalizar_inconsistencias(parsed, lote)
 
-    return json.loads(raw.strip()), response.usage
+    return normalizado, response.usage
 
 
 def analisar_tipagem(hits: List[Dict[str, Any]], repos_aux: dict = None) -> dict:
