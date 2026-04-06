@@ -95,13 +95,13 @@ def gerar_html(resultados: list, raiz: Path, total_analisados: int) -> str:
     body {{ font-family: monospace; background: #1e1e1e; color: #d4d4d4; margin: 0; padding: 20px; }}
     h1 {{ color: #9b59b6; }}
     .meta {{ color: #888; margin-bottom: 20px; }}
-    .arquivo {{ background: #252526; border-left: 4px solid #9b59b6; margin-bottom: 20px; padding: 12px 16px; border-radius: 4px; }}
-    .arq-header {{ font-weight: bold; color: #ce9178; margin-bottom: 8px; }}
+    .arquivo {{ background: #252526; border-left: 4px solid #9b59b6; margin-bottom: 32px; padding: 18px 22px; border-radius: 4px; }}
+    .arq-header {{ font-weight: bold; color: #ce9178; margin-bottom: 10px; }}
     .alias {{ color: #4ec9b0; font-weight: normal; }}
-    .arq-pagina {{ margin-bottom: 8px; }}
+    .arq-pagina {{ margin-bottom: 10px; }}
     .pagina {{ color: #9cdcfe; font-size: 1.05em; font-weight: bold; }}
-    table {{ border-collapse: collapse; width: 100%; }}
-    td {{ padding: 2px 8px; vertical-align: top; }}
+    table {{ border-collapse: collapse; width: 100%; margin-top: 8px; }}
+    td {{ padding: 5px 10px; vertical-align: top; }}
     td.ln {{ color: #888; text-align: right; min-width: 50px; user-select: none; }}
     td.code {{ color: #d4d4d4; white-space: pre-wrap; word-break: break-all; }}
     mark {{ background: #6b3a00; color: #ffa500; padding: 0 2px; border-radius: 2px; }}
@@ -155,7 +155,10 @@ def main():
     print(f"  Diretorio: {raiz}")
     print(f"{sep}\n")
 
-    arquivos_sql = sorted(raiz.rglob("*.sql"))
+    arquivos_sql = sorted(
+        p for p in raiz.rglob("*.sql")
+        if any(parte.lower() == "pages" for parte in p.parts)
+    )
     total_analisados = len(arquivos_sql)
     total_com_advertencias = 0
     resultados_html = []
