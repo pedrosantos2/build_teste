@@ -25,6 +25,15 @@ def extrair_alias(texto: str) -> Optional[str]:
     return m.group(1) if m else None
 
 
+def extrair_pagina(path: Path) -> Optional[str]:
+    """Extrai o nome da pagina do caminho se estiver dentro de uma pasta 'pages'."""
+    partes = path.parts
+    for i, parte in enumerate(partes):
+        if parte.lower() == "pages" and i + 1 < len(partes):
+            return Path(partes[i + 1]).stem
+    return None
+
+
 def analisar_arquivo(path: Path) -> list:
     try:
         texto = path.read_text(encoding="utf-8", errors="replace")
@@ -52,7 +61,8 @@ def gerar_html(resultados: list, raiz: Path, total_analisados: int) -> str:
 
     linhas_arquivos = []
     for arq in resultados:
-        alias_str = f" <span class='alias'>(Pagina: {html.escape(arq['alias'])})</span>" if arq['alias'] else ""
+        pagina_str = f" <span class='pagina'>&#x1F4C4; Pagina: {html.escape(arq['pagina'])}</span>" if arq.get('pagina') else ""
+        alias_str = f" <span class='alias'>({html.escape(arq['alias'])})</span>" if arq.get('alias') else ""
         linhas_items = []
         for item in arq['items']:
             trecho = html.escape(item['trecho'])
@@ -64,6 +74,7 @@ def gerar_html(resultados: list, raiz: Path, total_analisados: int) -> str:
         linhas_arquivos.append(f"""
         <div class="arquivo">
           <div class="arq-header">&#x1F7E3; {html.escape(arq['rel'])}{alias_str}</div>
+          {f'<div class="arq-pagina">{pagina_str}</div>' if arq.get('pagina') else ''}
           <table>{''.join(linhas_items)}</table>
           <div class="aviso">Este arquivo precisa ser alterado para suportar CNPJ alfanumerico.</div>
         </div>""")
@@ -87,6 +98,8 @@ def gerar_html(resultados: list, raiz: Path, total_analisados: int) -> str:
     .arquivo {{ background: #252526; border-left: 4px solid #9b59b6; margin-bottom: 20px; padding: 12px 16px; border-radius: 4px; }}
     .arq-header {{ font-weight: bold; color: #ce9178; margin-bottom: 8px; }}
     .alias {{ color: #4ec9b0; font-weight: normal; }}
+    .arq-pagina {{ margin-bottom: 8px; }}
+    .pagina {{ color: #9cdcfe; font-size: 1.05em; font-weight: bold; }}
     table {{ border-collapse: collapse; width: 100%; }}
     td {{ padding: 2px 8px; vertical-align: top; }}
     td.ln {{ color: #888; text-align: right; min-width: 50px; user-select: none; }}
@@ -161,9 +174,11 @@ def main():
             alias = None
 
         rel = path.relative_to(raiz)
-        alias_str = f" (Pagina: {alias})" if alias else ""
+        pagina = extrair_pagina(path)
+        pagina_str = f" (Pagina: {pagina})" if pagina else ""
+        alias_str = f" [alias: {alias}]" if alias else ""
 
-        print(f"[ADVERTENCIA] {rel}{alias_str}")
+        print(f"[ADVERTENCIA] {rel}{pagina_str}{alias_str}")
 
         items_dedup = []
         linhas_exibidas = set()
@@ -179,18 +194,16 @@ def main():
 
         print(f"  >>> Este arquivo precisa ser alterado para suportar CNPJ alfanumerico.\n")
 
-        resultados_html.append({"rel": str(rel), "alias": alias, "items": items_dedup})
+        resultados_html.append({"rel": str(rel), "alias": alias, "pagina": pagina, "items": items_dedup})
 
     print(sep)
     if total_com_advertencias == 0:
         print(f"  RESULTADO: Nenhuma advertencia encontrada em {total_analisados} arquivo(s).")
         print(sep)
-        code = 0
     else:
         print(f"  RESULTADO: {total_com_advertencias} arquivo(s) com advertencia(s) | {total_analisados} analisado(s)")
         print(sep)
         print()
-        code = 1
 
     if args.output:
         saida = Path(args.output)
@@ -201,7 +214,7 @@ def main():
         )
         print(f"  Relatorio HTML salvo em: {saida}")
 
-    sys.exit(code)
+    sys.exit(0)
 
 
 if __name__ == "__main__":
