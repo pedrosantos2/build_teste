@@ -77,7 +77,8 @@ def gerar_html(resultados: list, raiz: Path, total_analisados: int) -> str:
           {f'<div class="arq-pagina">{pagina_str}</div>' if arq.get('pagina') else ''}
           <table>{''.join(linhas_items)}</table>
           <div class="aviso">Este arquivo precisa ser alterado para suportar CNPJ alfanumerico.</div>
-        </div>""")
+        </div>
+        <hr class="separador">""")
 
     cor_resultado = "#c0392b" if total_adv > 0 else "#27ae60"
     texto_resultado = (
@@ -95,7 +96,8 @@ def gerar_html(resultados: list, raiz: Path, total_analisados: int) -> str:
     body {{ font-family: monospace; background: #1e1e1e; color: #d4d4d4; margin: 0; padding: 20px; }}
     h1 {{ color: #9b59b6; }}
     .meta {{ color: #888; margin-bottom: 20px; }}
-    .arquivo {{ background: #252526; border-left: 4px solid #9b59b6; margin-bottom: 32px; padding: 18px 22px; border-radius: 4px; }}
+    .arquivo {{ background: #252526; border-left: 4px solid #9b59b6; margin-bottom: 48px; padding: 18px 22px; border-radius: 4px; }}
+    .separador {{ border: none; border-top: 1px solid #444; margin: 0 0 48px 0; }}
     .arq-header {{ font-weight: bold; color: #ce9178; margin-bottom: 10px; }}
     .alias {{ color: #4ec9b0; font-weight: normal; }}
     .arq-pagina {{ margin-bottom: 10px; }}
