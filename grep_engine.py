@@ -192,7 +192,7 @@ def _e_arg_cnpj_split(arg: str) -> bool:
 
 
 _METODOS_SEMPRE_IGNORAR_TIPAGEM = {
-    "write", "setMotivo",
+    "write", "setMotivo", "padLeft",
     "setString", "setInt", "setLong", "setShort", "setByte",
     "setBigDecimal", "setDate", "setTimestamp", "setNull", "setObject",
     "setNullable", "setSearchRanges"
