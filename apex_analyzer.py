@@ -13,7 +13,12 @@ from pathlib import Path
 from typing import Optional
 
 REGEX_CNPJ_NUMERICO = re.compile(
-    r'(CNPJ|CGC|COD_PART|CORRETORA|DESPACHANTE|COURIER|FACC|TRAN|TERC|CONS|CLI|FOR)[_]?[942]',
+    r'(CNPJ|CGC|COD_PART|CORRETORA|DESPACHANTE|COURIER|FACC'
+    r'|TRANSP|TRAN(?=_|[942])'
+    r'|TERC(?:EIRO)?'
+    r'|CONSI|CONS(?=_|[942])'
+    r'|CLIEN|CLI(?=_|[942])'
+    r'|FORNE|FOR(?=_|[942]))\w*[942]',
     re.IGNORECASE
 )
 
